@@ -4,58 +4,109 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#6d5cff">
+<meta name="description" content="スマホで撮って、カードのセンタリングを遠近補正つきで実測。型式OCRから相場も引く。">
 <title>AgiS — カードスキャン</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AgiS">
 <style>
   :root{ --ink:#161a2b; --sub:#6b7186; --line:#e7e9f4; --card:#fff;
     --brand1:#6d5cff; --brand2:#a855f7; --good:#22c55e; --warn:#f59e0b; --bad:#ef4444;
     --shadow:0 10px 30px rgba(60,50,120,.12); }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  /* .row/.nudge の display:flex が hidden 属性に勝ってしまうので明示的に潰す */
+  [hidden]{ display:none !important; }
   html,body{ margin:0; }
   body{ font-family:'Segoe UI','Hiragino Kaku Gothic ProN','Meiryo',sans-serif; color:var(--ink);
     background:radial-gradient(1200px 600px at 50% -10%, #efeaff 0%, #f6f7fc 40%, #f6f7fc 100%); min-height:100vh; }
-  .app{ max-width:520px; margin:0 auto; padding:16px 16px 40px; }
-  .top{ display:flex; align-items:center; gap:10px; padding:6px 2px 14px; }
+  .app{ max-width:520px; margin:0 auto; padding:16px 16px 48px; }
+  .top{ display:flex; align-items:center; gap:10px; padding:6px 2px 12px; }
   .logo{ width:38px; height:38px; border-radius:12px; background:linear-gradient(135deg,var(--brand1),var(--brand2));
-    display:grid; place-items:center; color:#fff; font-size:20px; box-shadow:var(--shadow); }
-  .brand{ font-weight:800; font-size:18px; } .brand small{ display:block; font-weight:600; font-size:11px; color:var(--sub); letter-spacing:.5px; }
-  .stage{ position:relative; width:100%; aspect-ratio:3/4; border-radius:22px; overflow:hidden; background:#0c0e18; box-shadow:var(--shadow); }
-  video,canvas{ position:absolute; inset:0; width:100%; height:100%; }
-  video{ object-fit:cover; }
-  canvas{ object-fit:contain; touch-action:none; }
-  .frame{ position:absolute; inset:7%; pointer-events:none; }
-  .frame i{ position:absolute; width:28px; height:28px; border:3px solid #fff; opacity:.92; }
-  .frame .tl{ top:0; left:0; border-right:0; border-bottom:0; border-radius:8px 0 0 0; }
-  .frame .tr{ top:0; right:0; border-left:0; border-bottom:0; border-radius:0 8px 0 0; }
-  .frame .bl{ bottom:0; left:0; border-right:0; border-top:0; border-radius:0 0 0 8px; }
-  .frame .br{ bottom:0; right:0; border-left:0; border-top:0; border-radius:0 0 8px 0; }
+    display:grid; place-items:center; color:#fff; font-size:20px; box-shadow:var(--shadow); flex:0 0 auto; }
+  .brand{ font-weight:800; font-size:18px; line-height:1.15; }
+  .brand small{ display:block; font-weight:600; font-size:11px; color:var(--sub); letter-spacing:.5px; }
+
+  /* ステップ表示 */
+  .steps{ display:flex; gap:6px; margin:0 0 10px; }
+  .steps div{ flex:1; height:4px; border-radius:999px; background:#e3e6f2; }
+  .steps div.on{ background:linear-gradient(90deg,var(--brand1),var(--brand2)); }
+  .stepname{ font-size:12px; font-weight:700; color:var(--sub); margin:-4px 0 10px; }
+
+  .stage{ position:relative; width:100%; border-radius:22px; overflow:hidden; background:#0c0e18; box-shadow:var(--shadow); }
+  .stage.cam,.stage.crop{ aspect-ratio:3/4; }
+  .stage.rect{ aspect-ratio:63/88; }
+  .stage video,.stage canvas{ position:absolute; inset:0; width:100%; height:100%; }
+  .stage video{ object-fit:cover; }
+  .stage canvas{ object-fit:contain; touch-action:none; }
+  .guide{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); height:86%; aspect-ratio:63/88;
+    border:2px dashed rgba(255,255,255,.55); border-radius:10px; pointer-events:none; }
   /* 水平器（回転ロール基準の＋クロスヘア） */
   .lvl{ position:absolute; inset:0; pointer-events:none; }
-  .lvl .cg{ position:absolute; left:50%; top:50%; width:66%; height:66%; transform:translate(-50%,-50%) rotate(0deg); transition:transform .05s linear; }
-  .lvl .cg .h{ position:absolute; left:0; right:0; top:50%; height:2px; background:rgba(255,255,255,.6); transform:translateY(-50%); box-shadow:0 0 2px rgba(0,0,0,.4); }
-  .lvl .cg .v{ position:absolute; top:0; bottom:0; left:50%; width:2px; background:rgba(255,255,255,.6); transform:translateX(-50%); box-shadow:0 0 2px rgba(0,0,0,.4); }
-  .lvl .cg .dot{ position:absolute; left:50%; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px; border:2px solid rgba(255,255,255,.7); border-radius:50%; }
+  .lvl .cg{ position:absolute; left:50%; top:50%; width:58%; height:58%; transform:translate(-50%,-50%) rotate(0deg); transition:transform .05s linear; }
+  .lvl .cg .h{ position:absolute; left:0; right:0; top:50%; height:2px; background:rgba(255,255,255,.55); transform:translateY(-50%); box-shadow:0 0 2px rgba(0,0,0,.4); }
+  .lvl .cg .v{ position:absolute; top:0; bottom:0; left:50%; width:2px; background:rgba(255,255,255,.55); transform:translateX(-50%); box-shadow:0 0 2px rgba(0,0,0,.4); }
   .lvl.level .cg .h,.lvl.level .cg .v{ background:var(--good); box-shadow:0 0 6px rgba(34,197,94,.8); }
-  .lvl.level .cg .dot{ border-color:var(--good); box-shadow:0 0 6px rgba(34,197,94,.7); }
-  .live{ position:absolute; left:0; right:0; bottom:10px; text-align:center; color:#fff; font-size:12px; font-weight:700; text-shadow:0 1px 5px rgba(0,0,0,.7); }
-  .shutter{ display:grid; place-items:center; margin:16px 0 6px; }
+  .live{ position:absolute; left:0; right:0; bottom:10px; text-align:center; color:#fff; font-size:12px; font-weight:700; text-shadow:0 1px 5px rgba(0,0,0,.8); }
+  /* .stage canvas の width:100% に負けないよう、同じ詳細度で上書きする */
+  .stage canvas.loupe{ position:absolute; inset:auto; width:132px; height:132px; object-fit:fill;
+    border-radius:50%; border:3px solid rgba(255,255,255,.9); box-shadow:0 6px 20px rgba(0,0,0,.45);
+    pointer-events:none; display:none; z-index:5; background:#000; }
+  .stage canvas.loupe.on{ display:block; }
+
+  .shutter{ display:grid; place-items:center; margin:16px 0 4px; }
   .shutter button{ width:74px; height:74px; border-radius:50%; border:0; background:linear-gradient(135deg,var(--brand1),var(--brand2)); box-shadow:var(--shadow); position:relative; }
   .shutter button::after{ content:""; position:absolute; inset:6px; border-radius:50%; border:3px solid rgba(255,255,255,.9); }
   .shutter button:active{ transform:scale(.94); }
-  .mini{ display:flex; gap:8px; justify-content:center; margin-top:8px; }
-  .mini button{ padding:9px 16px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--ink); font-weight:600; font-size:13px; }
+
+  .row{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+  .btn{ padding:11px 16px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--ink);
+    font-weight:700; font-size:13px; font-family:inherit; }
+  .btn:active{ background:#f1eefe; }
+  .btn.pri{ border:0; color:#fff; background:linear-gradient(135deg,var(--brand1),var(--brand2)); box-shadow:var(--shadow); padding:12px 22px; }
+  .btn.sm{ padding:7px 12px; font-size:12px; }
+
   .card{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-top:14px; box-shadow:var(--shadow); }
-  .card h3{ margin:0 0 10px; font-size:13px; color:var(--sub); font-weight:700; letter-spacing:.4px; text-transform:uppercase; }
-  .psaBadge{ display:inline-block; font-size:26px; font-weight:800; padding:2px 16px; border-radius:14px; color:#fff; }
-  .srcTag{ font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; margin-left:8px; vertical-align:middle; }
-  .barwrap{ margin:10px 0; } .barlabel{ display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:6px; }
-  .bar{ position:relative; height:12px; border-radius:999px; background:#eef0f8; overflow:hidden; }
+  .card h3{ margin:0 0 10px; font-size:12px; color:var(--sub); font-weight:800; letter-spacing:.5px; }
+  .hint{ font-size:12px; color:var(--sub); line-height:1.6; margin-top:10px; }
+  .hint b{ color:var(--ink); }
+
+  /* 面トグル */
+  .seg{ display:flex; background:#eef0f8; border-radius:999px; padding:3px; margin-bottom:12px; }
+  .seg button{ flex:1; border:0; background:transparent; padding:9px 0; border-radius:999px; font-weight:800; font-size:13px; color:var(--sub); font-family:inherit; }
+  .seg button.on{ background:#fff; color:var(--ink); box-shadow:0 2px 8px rgba(60,50,120,.14); }
+
+  .gradeRow{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .psaBadge{ font-size:26px; font-weight:800; padding:3px 16px; border-radius:14px; color:#fff; }
+  .tag{ font-size:11px; font-weight:800; padding:4px 10px; border-radius:999px; }
+  .marginNote{ font-size:12.5px; font-weight:700; margin-top:10px; line-height:1.55; }
+
+  .barwrap{ margin:12px 0 4px; }
+  .barlabel{ display:flex; justify-content:space-between; align-items:baseline; font-size:13px; font-weight:800; margin-bottom:6px; }
+  .barlabel .mm{ font-size:11px; font-weight:600; color:var(--sub); }
+  .bar{ position:relative; height:14px; border-radius:999px; background:#eef0f8; overflow:hidden; }
   .bar .fill{ position:absolute; inset:0 auto 0 0; border-radius:999px; width:50%; }
-  .bar .c1{ position:absolute; top:-3px; bottom:-3px; left:45%; width:2px; background:rgba(0,0,0,.2); }
-  .bar .c2{ position:absolute; top:-3px; bottom:-3px; left:55%; width:2px; background:rgba(0,0,0,.2); }
-  .verdict{ font-size:12px; color:var(--sub); margin-top:6px; }
-  label{ display:block; color:var(--sub); font-size:12px; font-weight:600; margin-bottom:6px; }
-  input{ width:100%; padding:13px 14px; border-radius:14px; border:1px solid var(--line); background:#fbfbff; color:var(--ink); font-size:16px; }
+  .bar .c1,.bar .c2{ position:absolute; top:-3px; bottom:-3px; width:2px; background:rgba(0,0,0,.22); }
+  .tickrow{ position:relative; height:14px; font-size:9px; color:var(--sub); }
+  .tickrow span{ position:absolute; transform:translateX(-50%); white-space:nowrap; }
+
+  table.g{ width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
+  table.g th,table.g td{ padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  table.g th{ color:var(--sub); font-weight:700; font-size:11px; }
+  table.g td.n{ text-align:right; font-weight:800; font-variant-numeric:tabular-nums; }
+
+  .nudge{ display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; color:var(--sub); margin-top:10px; flex-wrap:wrap; }
+  .nudge .who{ color:var(--ink); }
+
+  label{ display:block; color:var(--sub); font-size:11px; font-weight:700; margin:0 0 4px; }
+  input[type=text],input[type=number]{ width:100%; padding:12px 13px; border-radius:13px; border:1px solid var(--line); background:#fbfbff; color:var(--ink); font-size:16px; font-family:inherit; }
   input:focus{ outline:0; border-color:var(--brand1); box-shadow:0 0 0 3px rgba(109,92,255,.15); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  details summary{ cursor:pointer; font-size:12px; font-weight:800; color:var(--sub); }
+  details[open] summary{ margin-bottom:12px; }
+
+  /* 相場 */
   .cardname{ font-size:16px; font-weight:800; margin-top:12px; }
   .prices{ display:flex; gap:10px; margin-top:10px; }
   .pill{ flex:1; border-radius:16px; padding:12px; text-align:center; }
@@ -70,327 +121,946 @@
   .cand .nm span{ font-size:11px; color:var(--sub); } .cand .pr{ text-align:right; font-size:12px; font-weight:700; white-space:nowrap; }
   .cand .pr .p10{ color:var(--brand1); } .cand .pr .rw{ color:var(--sub); font-weight:600; }
   .back{ font-size:12px; color:var(--brand1); font-weight:700; margin-bottom:6px; display:inline-block; }
-  .top .home{ margin-left:auto; font-size:12px; font-weight:700; color:var(--brand1); text-decoration:none; }
-  .xlink{ display:block; margin-top:10px; font-size:12px; font-weight:700; color:var(--brand1); text-decoration:none; }
+
+  .hitem{ display:flex; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); }
+  .hitem:last-child{ border-bottom:0; }
+  .hitem img{ width:38px; height:53px; object-fit:cover; border-radius:6px; background:#eee; flex:0 0 auto; }
+  .hitem .m{ flex:1; min-width:0; }
+  .hitem .m b{ display:block; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hitem .m span{ font-size:11px; color:var(--sub); }
+  .hitem .del{ border:0; background:transparent; color:var(--sub); font-size:16px; padding:6px 4px; }
+  .toast{ position:fixed; left:50%; bottom:26px; transform:translate(-50%,20px); background:#161a2b; color:#fff;
+    padding:11px 18px; border-radius:999px; font-size:13px; font-weight:700; opacity:0; transition:.25s; pointer-events:none; z-index:50; }
+  .toast.on{ opacity:1; transform:translate(-50%,0); }
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="top"><div class="logo">🎴</div><div class="brand">AgiS <small>CARD SCAN</small></div>
-    <a class="home" href="centering.html">センタリング計測 →</a></div>
+  <div class="top"><div class="logo">🎴</div><div class="brand">AgiS <small>CARD SCAN</small></div></div>
 
-  <div class="stage" id="stage">
-    <video id="video" playsinline muted></video>
-    <canvas id="canvas" hidden></canvas>
-    <div class="frame"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
-    <div class="lvl" id="lvl"><div class="cg" id="crossG"><div class="h"></div><div class="v"></div><div class="dot"></div></div></div>
-    <div class="live" id="live">水平を合わせて撮影</div>
+  <div class="steps"><div id="st1"></div><div id="st2"></div><div id="st3"></div></div>
+  <div class="stepname" id="stepname">STEP 1 — 撮影 / 写真を選ぶ</div>
+
+  <!-- ============ STEP 1 : 撮影 ============ -->
+  <section id="s1">
+    <div class="stage cam">
+      <video id="video" playsinline muted></video>
+      <div class="guide"></div>
+      <div class="lvl" id="lvl"><div class="cg" id="crossG"><div class="h"></div><div class="v"></div></div></div>
+      <div class="live" id="live">カードを枠いっぱいに・真上から</div>
+    </div>
+    <div class="shutter"><button id="shot" aria-label="撮影"></button></div>
+    <div class="row">
+      <button class="btn" id="pick">写真から選ぶ</button>
+      <input type="file" id="file" accept="image/*" hidden>
+    </div>
+  </section>
+
+  <!-- ============ STEP 2 : 四隅 ============ -->
+  <section id="s2" hidden>
+    <div class="stage crop" id="stage2">
+      <canvas id="cornerCv"></canvas>
+      <canvas class="loupe" id="loupe2" width="132" height="132"></canvas>
+    </div>
+    <div class="row"><button class="btn pri" id="toMeasure">この4隅で補正 →</button></div>
+    <div class="row">
+      <button class="btn sm" id="autoQuadBtn">自動で角を推定</button>
+      <button class="btn sm" id="backTo1">撮り直す</button>
+    </div>
+    <div class="card">
+      <h3>やること</h3>
+      <div class="hint">
+        <b>4つの●をカードの角ぴったりに合わせる。</b>ドラッグ中はルーペが出る。<br>
+        ここで台形の歪みを打ち消すので、多少斜めから撮っていても正面から見た状態で測れる。
+        補正後の画像で型式OCRも読むので、相場の当たりも良くなる。
+        <span id="skewNote"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 3 : 計測 ============ -->
+  <section id="s3" hidden>
+    <div class="stage rect" id="stage3">
+      <canvas id="measCv"></canvas>
+      <canvas class="loupe" id="loupe3" width="132" height="132"></canvas>
+    </div>
+    <div class="row">
+      <button class="btn sm" id="autoInnerBtn">内枠を自動検出</button>
+      <button class="btn sm" id="backTo2">4隅をやり直す</button>
+      <button class="btn sm" id="restart">撮り直す</button>
+    </div>
+    <div class="nudge" id="nudgeBox" hidden>
+      <span>選択中: <span class="who" id="nudgeWho">—</span></span>
+      <button class="btn sm" id="nMinus">−1px</button>
+      <button class="btn sm" id="nPlus">＋1px</button>
+    </div>
+
+    <div class="card">
+      <h3>センタリング</h3>
+      <div class="seg">
+        <button id="sideFront" class="on">表面</button>
+        <button id="sideBack">裏面</button>
+      </div>
+      <div class="gradeRow">
+        <span class="psaBadge" id="psaBadge">–</span>
+        <span class="tag" id="bgsTag">BGS –</span>
+        <span class="tag" id="confTag">–</span>
+      </div>
+      <div class="marginNote" id="marginNote"></div>
+
+      <div class="barwrap">
+        <div class="barlabel"><span>左右</span><span id="lrText">–</span></div>
+        <div class="bar"><div class="fill" id="lrFill"></div><div class="c1" id="lrC1"></div><div class="c2" id="lrC2"></div></div>
+        <div class="tickrow"><span id="lrTick1"></span><span id="lrTick2"></span></div>
+        <div class="barlabel" style="margin-top:2px"><span class="mm" id="lrMm">–</span><span class="mm" id="lrDir"></span></div>
+      </div>
+      <div class="barwrap">
+        <div class="barlabel"><span>上下</span><span id="tbText">–</span></div>
+        <div class="bar"><div class="fill" id="tbFill"></div><div class="c1" id="tbC1"></div><div class="c2" id="tbC2"></div></div>
+        <div class="tickrow"><span id="tbTick1"></span><span id="tbTick2"></span></div>
+        <div class="barlabel" style="margin-top:2px"><span class="mm" id="tbMm">–</span><span class="mm" id="tbDir"></span></div>
+      </div>
+
+      <div id="bothBox" hidden>
+        <h3 style="margin-top:16px">確定済み（表裏あわせた上限）</h3>
+        <table class="g" id="bothTable"></table>
+      </div>
+
+      <div class="hint" id="verdict"></div>
+
+      <div class="row" style="margin-top:14px">
+        <button class="btn sm" id="commitBtn">この面を確定 → もう片面を測る</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="copyBtn">結果をコピー</button>
+        <button class="btn" id="imgBtn">画像で保存</button>
+        <button class="btn pri" id="saveBtn">記録する</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 相場 ============ -->
+  <div class="card">
+    <h3>相場</h3>
+    <label for="ptype">カード名 or 型式（撮影すると型式を自動読取）</label>
+    <input type="text" id="ptype" placeholder="例: メガリザードン ／ 201/165">
+    <div id="priceOut" class="empty">カード名を入れると候補が出る</div>
   </div>
 
-  <div class="shutter"><button id="shot" aria-label="撮影"></button></div>
-  <div class="mini"><button id="retry" hidden>↺ 撮り直す</button></div>
+  <!-- ============ 数値入力 ============ -->
+  <div class="card">
+    <details id="manualBox">
+      <summary>定規・ノギスで測った値から計算する</summary>
+      <div class="grid2">
+        <div><label for="mL">左の余白</label><input type="number" id="mL" step="0.01" inputmode="decimal" placeholder="mm / px"></div>
+        <div><label for="mR">右の余白</label><input type="number" id="mR" step="0.01" inputmode="decimal" placeholder="mm / px"></div>
+        <div><label for="mT">上の余白</label><input type="number" id="mT" step="0.01" inputmode="decimal" placeholder="mm / px"></div>
+        <div><label for="mB">下の余白</label><input type="number" id="mB" step="0.01" inputmode="decimal" placeholder="mm / px"></div>
+      </div>
+      <div class="hint" id="manualOut">左右・上下それぞれ2つ入れると比率とグレード上限が出る（単位は揃っていれば何でもいい）。</div>
+    </details>
+  </div>
 
-  <div class="card" id="centerBox" hidden>
-    <h3>センタリング / PSA推定</h3>
-    <div id="centerHint" class="empty">解析中…</div>
-    <div id="centerViz" hidden>
-      <div style="margin-bottom:10px"><span class="psaBadge" id="psaBadge">–</span><span class="srcTag" id="srcTag"></span></div>
-      <div class="barwrap"><div class="barlabel"><span>左右</span><span id="lrText">–</span></div>
-        <div class="bar"><div class="fill" id="lrFill"></div><div class="c1"></div><div class="c2"></div></div></div>
-      <div class="barwrap"><div class="barlabel"><span>上下</span><span id="tbText">–</span></div>
-        <div class="bar"><div class="fill" id="tbFill"></div><div class="c1"></div><div class="c2"></div></div></div>
-      <div class="verdict" id="verdict"></div>
-      <div class="mini" style="margin-top:12px"><button id="redetect">↻ 自動再検出</button></div>
-      <a class="xlink" href="centering.html">→ ちゃんと測る（遠近補正つきセンタリング計測アプリ）</a>
+  <!-- ============ 記録 ============ -->
+  <div class="card">
+    <h3>記録</h3>
+    <div id="histOut" class="empty">まだ記録がない</div>
+    <div class="row" id="histTools" hidden style="justify-content:flex-start">
+      <button class="btn sm" id="histCopy">全部コピー</button>
+      <button class="btn sm" id="histClear">全部消す</button>
     </div>
   </div>
 
   <div class="card">
-    <h3>相場</h3>
-    <label>カード名で検索（例: メガリザードン ／ レシラム）</label>
-    <input id="ptype" placeholder="カード名を入力（撮影すると型式も自動読取）">
-    <div id="priceOut" class="empty">カード名を入れると候補が出る</div>
+    <h3>精度を出すコツ / 数字の読み方</h3>
+    <div class="hint">
+      ・<b>真上から</b>・<b>枠いっぱい</b>に・<b>拡散光</b>で。スリーブとローダーは外す<br>
+      ・4隅がわずかにズレるだけで1pt動く。ルーペで角と境界を見て詰める<br><br>
+      センタリングは <b>グレードの上限</b>を決めるだけ。角・エッジ・表面キズ・印刷ズレは別評価で、
+      ここが10でも他で落ちる。逆にここで落ちたら他が完璧でもそれ以上は付かない。<br><br>
+      判定基準（余白比の悪い方の値）:<br>
+      ・PSA10 = 表 55:45 / 裏 75:25 &nbsp;・PSA9 = 表 60:40 / 裏 90:10<br>
+      ・BGS中央10 = 表 50:50 / 裏 55:45 &nbsp;・BGS 9.5 = 表 55:45 / 裏 60:40<br><br>
+      実測の再現性は概ね <b>±1pt</b>。境界に対する余裕が1pt未満なら「どっちに転んでもおかしくない」と読む。
+    </div>
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script>
 (function(){
-  var $=function(id){return document.getElementById(id);};
-  var video=$('video'),canvas=$('canvas'),lvl=$('lvl'),crossG=$('crossG'),live=$('live');
-  var shot=$('shot'),retry=$('retry'),centerBox=$('centerBox'),centerHint=$('centerHint'),centerViz=$('centerViz');
-  var lrFill=$('lrFill'),tbFill=$('tbFill'),lrText=$('lrText'),tbText=$('tbText'),verdict=$('verdict'),psaBadge=$('psaBadge'),srcTag=$('srcTag');
-  var ptype=$('ptype'),priceOut=$('priceOut'),redetect=$('redetect');
-  var PRICES={};
+"use strict";
+var $=function(id){return document.getElementById(id);};
 
-  fetch('prices.json?'+Date.now()).then(function(r){return r.json();}).then(function(d){PRICES=d.cards||{};}).catch(function(){});
+/* ========== 定数 ========== */
+var CARD_W_MM=63, CARD_H_MM=88;
+var RW=780, RH=Math.round(RW*CARD_H_MM/CARD_W_MM);   /* 補正後の解像度 */
+var SRC_MAX=2000;                                     /* 元画像の長辺上限 */
 
-  /* ---------- カメラ ---------- */
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false})
-    .then(function(stream){
-      video.srcObject=stream; video.play();
-      var track=stream.getVideoTracks()[0];
-      try{ var caps=track.getCapabilities?track.getCapabilities():{}; var adv=[];
-        if(caps.focusMode && caps.focusMode.indexOf('continuous')>=0) adv.push({focusMode:'continuous'});
-        if(adv.length) track.applyConstraints({advanced:adv}); }catch(e){}
-    }).catch(function(){ live.textContent='カメラ不可（型式→相場は使えます）'; });
+/* センタリング基準（余白比の「悪い方の％」の上限） */
+var PSA={ front:[[10,55],[9,60],[8,65],[7,70],[6,80],[5,85]],
+          back :[[10,75],[9,90],[8,90],[7,90],[6,90],[5,90]] };
+var BGS={ front:[[10,50],[9.5,55],[9,60],[8.5,65],[8,70],[7.5,75],[7,80]],
+          back :[[10,55],[9.5,60],[9,65],[8.5,70],[8,75],[7.5,80],[7,85]] };
+var LINE_JA={oL:'左のカード縁',oR:'右のカード縁',oT:'上のカード縁',oB:'下のカード縁',
+             iL:'左の内枠',iR:'右の内枠',iT:'上の内枠',iB:'下の内枠'};
 
-  /* ---------- 水平器（回転ロール基準。立てても寝かせても効く） ----------
-     deviceorientation の gamma（左右回転）を第一。無ければ devicemotion の重力から算出。 */
-  var gotSensor=false, sensorOn=false;
-  function applyRoll(roll){
-    gotSensor=true;
-    crossG.style.transform='translate(-50%,-50%) rotate('+(-roll)+'deg)';
-    if(Math.abs(roll)<4){ lvl.classList.add('level'); live.textContent='水平OK ✓ 撮影して測定'; }
-    else { lvl.classList.remove('level'); live.textContent=(roll>0?'右':'左')+'に '+Math.round(Math.abs(roll))+'° 傾き → まっすぐに'; }
-  }
-  function onOri(e){ if(e.gamma==null) return; applyRoll(e.gamma); }
-  function onMotion(e){
-    var a=e.accelerationIncludingGravity||e.acceleration; if(!a||a.x==null) return;
-    applyRoll(Math.atan2(a.x,Math.hypot(a.y||0,a.z||0))*180/Math.PI);
-  }
-  function attach(){ window.addEventListener('deviceorientation',onOri); window.addEventListener('devicemotion',onMotion); }
-  function enableSensors(){
-    if(sensorOn) return; sensorOn=true;
-    var reqs=[];
-    if(window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) reqs.push(DeviceOrientationEvent.requestPermission());
-    if(window.DeviceMotionEvent && DeviceMotionEvent.requestPermission) reqs.push(DeviceMotionEvent.requestPermission());
-    if(reqs.length){
-      Promise.all(reqs.map(function(p){return p.catch(function(){return 'error';});})).then(function(res){
-        if(res.indexOf('granted')>=0){ attach(); }
-        else { sensorOn=false; live.textContent='傾き許可が必要 → 設定→Safari→「モーションとオリエンテーション」をON'; }
-      });
-    } else { attach(); }
-    setTimeout(function(){ if(!gotSensor){ lvl.style.opacity='.35'; live.textContent='傾きセンサー未対応：目視で水平に'; sensorOn=false; } },1800);
-  }
-  // 最初のタッチで自動有効化（iOSの許可はジェスチャ内で要求）
-  document.addEventListener('pointerdown',function once(){ enableSensors(); document.removeEventListener('pointerdown',once); });
+/* ========== 状態 ========== */
+var srcCv=document.createElement('canvas');    /* 撮影/選択した画像（縮小済み） */
+var viewCv=$('cornerCv');                      /* STEP2 表示用 */
+var viewImg=document.createElement('canvas');  /* STEP2 の素の縮小画像 */
+var rectCv=$('measCv');                        /* STEP3 表示用（補正後＋overlay） */
+var rectClean=document.createElement('canvas');/* 補正後の素画像 */
+var quad=null;        /* [{x,y}×4] TL,TR,BR,BL : srcCv 画素座標 */
+var lines=null;       /* {oL,iL,iR,oR,oT,iT,iB,oB} : rectCv 画素座標 */
+var side='front';
+var cur=null;                   /* いま画面に出ている計測（未確定） */
+var res={front:null,back:null}; /* 確定済み。面トグルでは書き換えない */
+var lastLine=null, drag=null, autoDetected=false, skewPct=0;
+var PRICES={};
 
-  /* ---------- 撮影 → ドラッグ式センタリング枠 ----------
-     緑=カード外枠(4辺)、水色=絵柄枠(4辺)。自動検出で初期配置→ユーザーが線をドラッグして合わせる。
-     どこを枠と判定したかが見える＆黒縁SAR等の低精度を手で補正できる。 */
-  var shotImg=document.createElement('canvas'), box=null, detected=false, drag=null;
-  function capture(){
-    var w=video.videoWidth||720,h=video.videoHeight||960;
-    canvas.width=w; canvas.height=h; canvas.getContext('2d').drawImage(video,0,0,w,h);
-    shotImg.width=w; shotImg.height=h; shotImg.getContext('2d').drawImage(canvas,0,0);
-    video.hidden=true; canvas.hidden=false; lvl.style.display='none'; live.style.display='none';
-    shot.parentElement.style.display='none'; retry.hidden=false;
-    centerBox.hidden=false; centerViz.hidden=false; centerHint.hidden=false;
-    centerHint.textContent='解析中…';
-    setTimeout(function(){ autoCenter(); },30);
-    setTimeout(runOCR,80);
-  }
-  function resetShot(){
-    video.hidden=false; canvas.hidden=true; lvl.style.display=''; lvl.style.opacity=''; live.style.display='';
-    shot.parentElement.style.display=''; retry.hidden=true; centerBox.hidden=true; box=null; drag=null;
-  }
+fetch('prices.json?'+Date.now()).then(function(r){return r.json();})
+  .then(function(d){ PRICES=d.cards||{}; }).catch(function(){});
 
-  /* 勾配プロジェクションで初期枠を推定。失敗しても既定枠を置いて必ずドラッグ可能に。 */
-  function autoCenter(){
-    var W=canvas.width,H=canvas.height;
-    detected=false;
+/* ========== 小物 ========== */
+function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t=setTimeout(function(){t.classList.remove('on');},1800); }
+function fmt(v,d){ return (Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toFixed(d); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+function step(n){
+  $('s1').hidden=(n!==1); $('s2').hidden=(n!==2); $('s3').hidden=(n!==3);
+  $('st1').className=n>=1?'on':''; $('st2').className=n>=2?'on':''; $('st3').className=n>=3?'on':'';
+  $('stepname').textContent=['','STEP 1 — 撮影 / 写真を選ぶ','STEP 2 — 4隅をカードの角に合わせる','STEP 3 — 内枠を合わせて計測'][n];
+  window.scrollTo(0,0);
+}
+
+/* client座標 → canvas画素（object-fit:contain 補正） */
+function toCv(cv,cx,cy){
+  var r=cv.getBoundingClientRect(), W=cv.width, H=cv.height;
+  var sc=Math.min(r.width/W, r.height/H), dw=W*sc, dh=H*sc;
+  return { x:(cx-r.left-(r.width-dw)/2)/sc, y:(cy-r.top-(r.height-dh)/2)/sc };
+}
+
+/* ========== カメラ ========== */
+var live=$('live'), lvl=$('lvl'), crossG=$('crossG'), video=$('video');
+navigator.mediaDevices && navigator.mediaDevices.getUserMedia({
+    video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false})
+  .then(function(stream){
+    video.srcObject=stream; video.play();
     try{
-      var sw=420, sh=Math.round(H*sw/W);
-      var t=document.createElement('canvas'); t.width=sw; t.height=sh;
-      t.getContext('2d').drawImage(canvas,0,0,sw,sh);
-      var d=t.getContext('2d').getImageData(0,0,sw,sh).data;
-      function L(x,y){ var i=(y*sw+x)*4; return d[i]*.30+d[i+1]*.59+d[i+2]*.11; }
-      var colE=new Float32Array(sw), rowE=new Float32Array(sh);
-      var y0=(sh*0.20)|0,y1=(sh*0.80)|0, x0=(sw*0.20)|0,x1=(sw*0.80)|0,x,y,s;
-      for(x=1;x<sw-1;x++){ s=0; for(y=y0;y<y1;y++) s+=Math.abs(L(x+1,y)-L(x-1,y)); colE[x]=s/(y1-y0); }
-      for(y=1;y<sh-1;y++){ s=0; for(x=x0;x<x1;x++) s+=Math.abs(L(x,y+1)-L(x,y-1)); rowE[y]=s/(x1-x0); }
-      function smooth(p){ var q=new Float32Array(p.length),i; for(i=2;i<p.length-2;i++) q[i]=(p[i-2]+p[i-1]*2+p[i]*3+p[i+1]*2+p[i+2])/9; return q; }
-      colE=smooth(colE); rowE=smooth(rowE);
-      function peaks(p){ var mx=0,n=p.length,i; for(i=0;i<n;i++) if(p[i]>mx)mx=p[i]; if(mx<6) return [];
-        var th=mx*0.28, cand=[]; for(i=3;i<n-3;i++){ if(p[i]>=th && p[i]>=p[i-1]&&p[i]>=p[i+1]&&p[i]>=p[i-2]&&p[i]>=p[i+2]) cand.push([i,p[i]]); }
-        cand.sort(function(a,b){return b[1]-a[1];});
-        var pick=[],k,m,ok; for(k=0;k<cand.length;k++){ ok=true; for(m=0;m<pick.length;m++) if(Math.abs(cand[k][0]-pick[m])<12){ok=false;break;} if(ok)pick.push(cand[k][0]); }
-        pick.sort(function(a,b){return a-b;}); return pick; }
-      var px=peaks(colE), py=peaks(rowE), sx=W/sw, sy=H/sh;
-      if(px.length>=4 && py.length>=4){
-        var oL=px[0]*sx,iL=px[1]*sx,iR=px[px.length-2]*sx,oR=px[px.length-1]*sx;
-        var oT=py[0]*sy,iT=py[1]*sy,iB=py[py.length-2]*sy,oB=py[py.length-1]*sy;
-        if((oR-oL)>W*0.5 && (oB-oT)>H*0.5 && (iL-oL)>2 && (oR-iR)>2 && (iT-oT)>2 && (oB-iB)>2){
-          box={oL:oL,iL:iL,iR:iR,oR:oR,oT:oT,iT:iT,iB:iB,oB:oB}; detected=true;
-        }
-      }
+      var track=stream.getVideoTracks()[0], caps=track.getCapabilities?track.getCapabilities():{}, adv=[];
+      if(caps.focusMode && caps.focusMode.indexOf('continuous')>=0) adv.push({focusMode:'continuous'});
+      if(adv.length) track.applyConstraints({advanced:adv});
     }catch(e){}
-    if(!box || !detected){ // 既定枠（画面比で仮置き）
-      box={oL:W*0.05,iL:W*0.14,iR:W*0.86,oR:W*0.95, oT:H*0.04,iT:H*0.11,iB:H*0.89,oB:H*0.96};
-    }
-    centerHint.textContent=(detected?'自動検出した枠を表示。':'自動不可→仮枠を表示。')+' 緑=カード縁 / 水色=絵柄枠。線をドラッグして合わせて（黒縁SARは特に要調整）';
-    redraw(); updateCenter();
-  }
+  }).catch(function(){ live.textContent='カメラが使えない →「写真から選ぶ」／型式検索は使えます'; });
 
-  /* 画像は object-fit:contain 表示。client座標→canvas画素へ（レターボックス補正） */
-  function toCanvas(cx,cy){
-    var r=canvas.getBoundingClientRect(), W=canvas.width,H=canvas.height;
-    var sc=Math.min(r.width/W, r.height/H), dw=W*sc, dh=H*sc, ox=(r.width-dw)/2, oy=(r.height-dh)/2;
-    return { x:(cx-r.left-ox)/sc, y:(cy-r.top-oy)/sc, sc:sc };
-  }
-  function redraw(){
-    var ctx=canvas.getContext('2d'), W=canvas.width,H=canvas.height;
-    ctx.drawImage(shotImg,0,0);
-    var oL=box.oL,iL=box.iL,iR=box.iR,oR=box.oR,oT=box.oT,iT=box.iT,iB=box.iB,oB=box.oB;
-    var lw=Math.max(2,W*0.006), hr=Math.max(11,W*0.028), fs=Math.max(20,W*0.05);
-    var Lb=Math.max(1,iL-oL),Rb=Math.max(1,oR-iR),Tb=Math.max(1,iT-oT),Bb=Math.max(1,oB-iB);
-    var lr=Math.round(Lb/(Lb+Rb)*100), tb=Math.round(Tb/(Tb+Bb)*100);
-    function tint(p){ var o=Math.abs(p-50); return o<=5?'rgba(34,197,94,.30)':(o<=10?'rgba(245,158,11,.32)':'rgba(239,68,68,.34)'); }
-    // 実測してる余白帯を塗る（左右＝縦の絵柄範囲、上下＝横の絵柄範囲）
-    ctx.fillStyle=tint(lr);          ctx.fillRect(oL,iT,iL-oL,iB-iT); ctx.fillRect(iR,iT,oR-iR,iB-iT);
-    ctx.fillStyle=tint(tb);          ctx.fillRect(iL,oT,iR-iL,iT-oT); ctx.fillRect(iL,iB,iR-iL,oB-iB);
-    // 外枠（緑・カード縁）と絵柄枠（水色・破線）を"四角"で
-    ctx.lineWidth=lw; ctx.setLineDash([]); ctx.strokeStyle='#22c55e'; ctx.strokeRect(oL,oT,oR-oL,oB-oT);
-    ctx.setLineDash([lw*3,lw*2]); ctx.strokeStyle='#38bdf8'; ctx.strokeRect(iL,iT,iR-iL,iB-iT); ctx.setLineDash([]);
-    // ハンドル（各辺の中央●）※連続 arc は subpath が線で繋がるので1つずつ beginPath する
-    function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,hr,0,Math.PI*2); ctx.fill(); }
-    ctx.fillStyle='#22c55e';
-    dot(oL,(oT+oB)/2); dot(oR,(oT+oB)/2); dot((oL+oR)/2,oT); dot((oL+oR)/2,oB);
-    ctx.fillStyle='#38bdf8';
-    dot(iL,(iT+iB)/2); dot(iR,(iT+iB)/2); dot((iL+iR)/2,iT); dot((iL+iR)/2,iB);
-    // 各辺の比率を画像に直接ラベル
-    ctx.font='800 '+fs+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    function lab(x,y,t){ ctx.lineWidth=fs*0.22; ctx.strokeStyle='rgba(0,0,0,.75)'; ctx.strokeText(t,x,y); ctx.fillStyle='#fff'; ctx.fillText(t,x,y); }
-    var cy=(iT+iB)/2, cx=(iL+iR)/2;
-    lab((oL+iL)/2, cy, lr+'%'); lab((iR+oR)/2, cy, (100-lr)+'%');
-    lab(cx, (oT+iT)/2, tb+'%'); lab(cx, (iB+oB)/2, (100-tb)+'%');
-  }
-  function nearestHandle(p){
-    var W=canvas.width,H=canvas.height, th=Math.max(W*0.06,26), best=null,bd=th;
-    var vs=['oL','iL','iR','oR'], hs=['oT','iT','iB','oB'],i,dd;
-    for(i=0;i<vs.length;i++){ dd=Math.abs(p.x-box[vs[i]]); if(dd<bd){bd=dd;best={k:vs[i],ax:'x'};} }
-    for(i=0;i<hs.length;i++){ dd=Math.abs(p.y-box[hs[i]]); if(dd<bd){bd=dd;best={k:hs[i],ax:'y'};} }
-    return best;
-  }
-  canvas.addEventListener('pointerdown',function(ev){
-    if(canvas.hidden||!box) return;
-    var p=toCanvas(ev.clientX,ev.clientY), h=nearestHandle(p);
-    if(h){ ev.preventDefault(); drag=h; canvas.setPointerCapture&&canvas.setPointerCapture(ev.pointerId); }
-  });
-  canvas.addEventListener('pointermove',function(ev){
-    if(!drag||canvas.hidden) return;
-    ev.preventDefault();
-    var p=toCanvas(ev.clientX,ev.clientY), W=canvas.width,H=canvas.height, m=6;
-    if(drag.ax==='x'){ var v=Math.max(0,Math.min(W,p.x));
-      if(drag.k==='oL') v=Math.min(v,box.iL-m); else if(drag.k==='iL') v=Math.max(box.oL+m,Math.min(v,box.iR-m));
-      else if(drag.k==='iR') v=Math.max(box.iL+m,Math.min(v,box.oR-m)); else v=Math.max(v,box.iR+m);
-      box[drag.k]=v;
-    } else { var w=Math.max(0,Math.min(H,p.y));
-      if(drag.k==='oT') w=Math.min(w,box.iT-m); else if(drag.k==='iT') w=Math.max(box.oT+m,Math.min(w,box.iB-m));
-      else if(drag.k==='iB') w=Math.max(box.iT+m,Math.min(w,box.oB-m)); else w=Math.max(w,box.iB+m);
-      box[drag.k]=w;
-    }
-    redraw(); updateCenter();
-  });
-  function endDrag(){ drag=null; }
-  canvas.addEventListener('pointerup',endDrag); canvas.addEventListener('pointercancel',endDrag);
-
-  function qcolor(p){ var o=Math.abs(p-50); return o<=5?'var(--good)':(o<=10?'var(--warn)':'var(--bad)'); }
-  function psaEst(lr,tb){
-    var worst=Math.max(Math.abs(lr-50),Math.abs(tb-50)); // 5 = 55:45
-    if(worst<=5) return {g:'10',c:'var(--good)',n:'センタリングはPSA10圏（両軸55:45以内）'};
-    if(worst<=10) return {g:'9',c:'var(--warn)',n:'PSA10は不可（60:40圏）'};
-    if(worst<=15) return {g:'8',c:'var(--bad)',n:'ズレ大（65:35圏）'};
-    return {g:'≤7',c:'var(--bad)',n:'センタリング大きくズレ'};
-  }
-  function updateCenter(){
-    if(!box) return;
-    var Lb=Math.max(1,box.iL-box.oL), Rb=Math.max(1,box.oR-box.iR), Tb=Math.max(1,box.iT-box.oT), Bb=Math.max(1,box.oB-box.iB);
-    var lr=Math.round(Lb/(Lb+Rb)*100), tb=Math.round(Tb/(Tb+Bb)*100);
-    lrText.textContent=lr+' : '+(100-lr); tbText.textContent=tb+' : '+(100-tb);
-    lrFill.style.width=lr+'%'; lrFill.style.background=qcolor(lr);
-    tbFill.style.width=tb+'%'; tbFill.style.background=qcolor(tb);
-    var e=psaEst(lr,tb);
-    psaBadge.textContent='PSA '+e.g; psaBadge.style.background=e.c;
-    if(detected){ srcTag.textContent='自動検出（要確認）'; srcTag.style.background='#fff4e5'; srcTag.style.color='#b45309'; }
-    else { srcTag.textContent='手動で線合わせ'; srcTag.style.background='#eaf7ee'; srcTag.style.color='#15803d'; }
-    verdict.textContent=e.n+'　※角・エッジ・傷は別途。最終は自分の目で';
-  }
-
-  /* ---------- 相場（カード名 or 型式で検索 → 候補選択） ---------- */
-  function slug(t){ return String(t).trim().toLowerCase().replace(/[\s/]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,''); }
-  function yen(v){ return (typeof v==='number')?'¥'+v.toLocaleString():'—'; }
-  function norm(s){ return String(s).toLowerCase().replace(/[\s・=&＆]/g,''); }
-  function codeOf(k){ var p=k.split('-');
-    if(p.length>=2 && /^\d+$/.test(p[p.length-1]) && /^[0-9a-z]+$/.test(p[p.length-2]))
-      return (p.slice(0,-2).join(' ')+' '+p[p.length-2]+'/'+p[p.length-1]).toUpperCase().trim();
-    return k.toUpperCase();
-  }
-  function search(){
-    var q=ptype.value.trim();
-    if(!q){ priceOut.className='empty'; priceOut.textContent='カード名を入れると候補が出る'; return; }
-    var nq=norm(q), sq=slug(q), keys=Object.keys(PRICES), hit=[];
-    for(var i=0;i<keys.length;i++){ var k=keys[i], c=PRICES[k];
-      if(norm(c.name||'').indexOf(nq)>=0 || k.indexOf(sq)>=0) hit.push(k); }
-    if(!hit.length){ priceOut.className='empty'; priceOut.innerHTML='<span class="chip" style="background:#fff0f4;color:#e11d63">未収録</span> 別名・ひらがな・型式でも試して。無ければスニダン現物で。'; return; }
-    hit.sort(function(a,b){ return (PRICES[b].psa10||0)-(PRICES[a].psa10||0); });
-    if(hit.length>12) hit=hit.slice(0,12);
-    if(hit.length===1){ showDetail(hit[0],false); return; }
-    var html='<div class="empty" style="margin:2px 0 4px">'+hit.length+'件の候補 — タップで選択（同名多数）</div>';
-    for(var i=0;i<hit.length;i++){ var k=hit[i], c=PRICES[k];
-      html+='<div class="cand" data-k="'+k+'"><div class="nm"><b>'+(c.name||'')+'</b><span>'+codeOf(k)+'</span></div>'+
-        '<div class="pr"><div class="p10">PSA10 '+yen(c.psa10)+'</div><div class="rw">素体 '+yen(c.sotai)+'</div></div></div>'; }
-    priceOut.className=''; priceOut.innerHTML=html;
-    var cs=priceOut.querySelectorAll('.cand');
-    for(var i=0;i<cs.length;i++) cs[i].addEventListener('click',function(){ showDetail(this.getAttribute('data-k'),true); });
-  }
-  function showDetail(k,back){
-    var c=PRICES[k]; if(!c) return;
-    priceOut.className='';
-    priceOut.innerHTML=(back?'<span class="back" id="backBtn">← 候補に戻る</span>':'')+
-      '<div class="cardname">'+(c.name||'')+' <span style="font-size:12px;color:var(--sub);font-weight:600">'+codeOf(k)+'</span></div>'+
-      '<div class="prices">'+
-      '<div class="pill psa"><div class="k">PSA10</div><div class="v">'+yen(c.psa10)+'</div></div>'+
-      '<div class="pill raw"><div class="k">素体</div><div class="v">'+yen(c.sotai)+'</div></div></div>'+
-      '<div class="src">出典 '+(c.src||'')+'（算定値）・最終値付けはスニダン現物で</div>';
-    var b=$('backBtn'); if(b) b.addEventListener('click',search);
-  }
-
-  /* ---------- 型式OCR（Tesseract.jsを押した時だけ遅延ロード） ---------- */
-  var ocrReady=null;
-  function loadOCR(){
-    if(ocrReady) return ocrReady;
-    ocrReady=new Promise(function(res,rej){
-      var s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-      s.onload=function(){res(window.Tesseract);}; s.onerror=function(){rej();};
-      document.head.appendChild(s);
+/* ========== 水平器（回転ロール基準。立てても寝かせても効く） ==========
+   遠近補正が入ったので必須ではないが、正対して撮るほど補間のボケが減る。 */
+var gotSensor=false, sensorOn=false;
+function applyRoll(roll){
+  gotSensor=true;
+  crossG.style.transform='translate(-50%,-50%) rotate('+(-roll)+'deg)';
+  if(Math.abs(roll)<3){ lvl.classList.add('level'); live.textContent='水平OK ✓ 真上から撮影'; }
+  else{ lvl.classList.remove('level'); live.textContent=(roll>0?'右':'左')+'に '+Math.round(Math.abs(roll))+'° 傾き'; }
+}
+function onOri(e){ if(e.gamma!=null) applyRoll(e.gamma); }
+function onMotion(e){ var a=e.accelerationIncludingGravity||e.acceleration;
+  if(a&&a.x!=null) applyRoll(Math.atan2(a.x,Math.hypot(a.y||0,a.z||0))*180/Math.PI); }
+function enableSensors(){
+  if(sensorOn) return; sensorOn=true;
+  var reqs=[];
+  if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission) reqs.push(DeviceOrientationEvent.requestPermission());
+  if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission) reqs.push(DeviceMotionEvent.requestPermission());
+  function attach(){ window.addEventListener('deviceorientation',onOri); window.addEventListener('devicemotion',onMotion); }
+  if(reqs.length){
+    Promise.all(reqs.map(function(p){return p.catch(function(){return 'error';});})).then(function(r){
+      if(r.indexOf('granted')>=0) attach(); else sensorOn=false;
     });
-    return ocrReady;
-  }
-  function cropBottom(){ // 綺麗な撮影原本(shotImg)の下20%を拡大＋コントラスト強調
-    var W=shotImg.width,H=shotImg.height, ch=Math.round(H*0.20), cy=H-ch, sc=Math.min(3,1500/W);
-    var up=document.createElement('canvas'); up.width=Math.round(W*sc); up.height=Math.round(ch*sc);
-    var uc=up.getContext('2d'); uc.imageSmoothingEnabled=true;
-    uc.drawImage(shotImg,0,cy,W,ch,0,0,up.width,up.height);
-    var im=uc.getImageData(0,0,up.width,up.height), d=im.data, i,g,mn=255,mx=0;
-    for(i=0;i<d.length;i+=4){ g=d[i]*.3+d[i+1]*.59+d[i+2]*.11; d[i]=d[i+1]=d[i+2]=g; if(g<mn)mn=g; if(g>mx)mx=g; }
-    var rng=Math.max(1,mx-mn);
-    for(i=0;i<d.length;i+=4){ var v=(d[i]-mn)/rng*255; d[i]=d[i+1]=d[i+2]=v<0?0:(v>255?255:v); }
-    uc.putImageData(im,0,0); return up;
-  }
-  function extractType(text){ // 採番(223/193)だけ狙う。M2a等の特殊フォントは無視
-    var s=(text||'').toUpperCase().replace(/\s+/g,' ');
-    var m=s.match(/(\d{1,3})\s*\/\s*([0-9SVP\-]{1,7})/);       // 223/193, 289/SV-P
-    if(m) return m[1]+'/'+m[2];
-    m=s.match(/(\d{2,3})\D{1,3}(\d{2,3})/);                     // スラッシュ誤読の保険
-    if(m) return m[1]+'/'+m[2];
-    return null;
-  }
-  function runOCR(){ // 撮影後に自動。採番が読めて、かつ手入力が空なら埋めて検索
-    if(canvas.hidden) return;
-    loadOCR().then(function(T){
-      return T.recognize(cropBottom(),'eng',{tessedit_char_whitelist:'0123456789/SVP-',tessedit_pageseg_mode:'6'});
-    }).then(function(r){
-      var t=extractType((r&&r.data&&r.data.text)||'');
-      if(t && !ptype.value.trim()){ ptype.value=t; search(); }
-    }).catch(function(){});
-  }
+  } else attach();
+  setTimeout(function(){ if(!gotSensor) lvl.style.opacity='.3'; },1800);
+}
+/* iOSの許可はジェスチャ内でしか要求できないので最初のタッチで */
+document.addEventListener('pointerdown',function once(){ enableSensors(); document.removeEventListener('pointerdown',once); });
 
-  ptype.addEventListener('input',search);
-  shot.addEventListener('click',capture);
-  retry.addEventListener('click',resetShot);
-  redetect.addEventListener('click',function(){ if(!canvas.hidden) autoCenter(); });
+/* ========== 画像取り込み ========== */
+function setSource(bmp,w,h){
+  var sc=Math.min(1,SRC_MAX/Math.max(w,h));
+  srcCv.width=Math.round(w*sc); srcCv.height=Math.round(h*sc);
+  srcCv.getContext('2d').drawImage(bmp,0,0,srcCv.width,srcCv.height);
+  enterCorners();
+}
+$('shot').addEventListener('click',function(){
+  var w=video.videoWidth, h=video.videoHeight;
+  if(!w||!h){ toast('カメラ未起動 →「写真から選ぶ」'); return; }
+  setSource(video,w,h);
+});
+$('pick').addEventListener('click',function(){ $('file').click(); });
+$('file').addEventListener('change',function(){
+  var f=this.files&&this.files[0]; if(!f) return;
+  this.value='';
+  function viaImg(){
+    var img=new Image(), url=URL.createObjectURL(f);
+    img.onload=function(){ setSource(img,img.naturalWidth,img.naturalHeight); URL.revokeObjectURL(url); };
+    img.onerror=function(){ toast('画像を読めなかった'); URL.revokeObjectURL(url); };
+    img.src=url;
+  }
+  if(window.createImageBitmap){
+    createImageBitmap(f,{imageOrientation:'from-image'})
+      .catch(function(){ return createImageBitmap(f); })
+      .then(function(bm){ setSource(bm,bm.width,bm.height); })
+      .catch(viaImg);
+  } else viaImg();
+});
+
+/* ========== STEP2 : 4隅 ========== */
+function enterCorners(){
+  var mx=900, sc=Math.min(1,mx/Math.max(srcCv.width,srcCv.height));
+  viewImg.width=Math.round(srcCv.width*sc); viewImg.height=Math.round(srcCv.height*sc);
+  viewImg.getContext('2d').drawImage(srcCv,0,0,viewImg.width,viewImg.height);
+  viewCv.width=viewImg.width; viewCv.height=viewImg.height;
+  autoQuad();
+  step(2);
+}
+/* 外側から内側へ走査して「最初の強いエッジ」＝カード縁 を拾う（内側の絵柄枠を掴まないため） */
+function autoQuad(){
+  var W=srcCv.width,H=srcCv.height, ok=false;
+  try{
+    var sw=360, sh=Math.max(1,Math.round(H*sw/W));
+    var t=document.createElement('canvas'); t.width=sw; t.height=sh;
+    t.getContext('2d').drawImage(srcCv,0,0,sw,sh);
+    var d=t.getContext('2d').getImageData(0,0,sw,sh).data;
+    function L(x,y){ var i=(y*sw+x)*4; return d[i]*.30+d[i+1]*.59+d[i+2]*.11; }
+    var col=new Float32Array(sw), row=new Float32Array(sh), x,y,s;
+    var ya=(sh*0.25)|0, yb=(sh*0.75)|0, xa=(sw*0.25)|0, xb=(sw*0.75)|0;
+    for(x=2;x<sw-2;x++){ s=0; for(y=ya;y<yb;y++) s+=Math.abs(L(x+2,y)-L(x-2,y)); col[x]=s/(yb-ya); }
+    for(y=2;y<sh-2;y++){ s=0; for(x=xa;x<xb;x++) s+=Math.abs(L(x,y+2)-L(x,y-2)); row[y]=s/(xb-xa); }
+    function sm(p){ var q=new Float32Array(p.length),i;
+      for(i=2;i<p.length-2;i++) q[i]=(p[i-2]+2*p[i-1]+3*p[i]+2*p[i+1]+p[i+2])/9; return q; }
+    col=sm(col); row=sm(row);
+    function scan(p,from,to){
+      var i,mx=0; for(i=0;i<p.length;i++) if(p[i]>mx) mx=p[i];
+      if(mx<5) return -1;
+      var th=mx*0.42, dir=to>from?1:-1;
+      for(i=from;dir>0?i<=to:i>=to;i+=dir)
+        if(p[i]>=th && p[i]>=p[i-dir] && p[i]>=p[i+dir]) return i;
+      return -1;
+    }
+    var l=scan(col,3,(sw*0.42)|0), r=scan(col,sw-4,(sw*0.58)|0);
+    var tp=scan(row,3,(sh*0.42)|0), b=scan(row,sh-4,(sh*0.58)|0);
+    if(l>=0&&r>=0&&tp>=0&&b>=0&&(r-l)>sw*0.45&&(b-tp)>sh*0.45){
+      var kx=W/sw, ky=H/sh;
+      quad=[{x:l*kx,y:tp*ky},{x:r*kx,y:tp*ky},{x:r*kx,y:b*ky},{x:l*kx,y:b*ky}];
+      ok=true;
+    }
+  }catch(e){}
+  if(!ok) quad=[{x:W*0.08,y:H*0.06},{x:W*0.92,y:H*0.06},{x:W*0.92,y:H*0.94},{x:W*0.08,y:H*0.94}];
+  $('skewNote').innerHTML = ok ? '<br>自動推定を置いた。<b>必ず角を目視で詰めて</b>から次へ。'
+                               : '<br>自動推定が効かなかったので仮枠。角に合わせて。';
+  drawCorners();
+}
+function drawCorners(){
+  var ctx=viewCv.getContext('2d'), W=viewCv.width, H=viewCv.height, k=W/srcCv.width;
+  ctx.clearRect(0,0,W,H); ctx.drawImage(viewImg,0,0);
+  var p=quad.map(function(q){ return {x:q.x*k, y:q.y*k}; });
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0,0,W,H);
+  ctx.moveTo(p[0].x,p[0].y); ctx.lineTo(p[3].x,p[3].y); ctx.lineTo(p[2].x,p[2].y); ctx.lineTo(p[1].x,p[1].y);
+  ctx.closePath(); ctx.fillStyle='rgba(8,10,24,.55)'; ctx.fill('evenodd');
+  ctx.restore();
+  var lw=Math.max(2,W*0.006);
+  ctx.lineWidth=lw; ctx.strokeStyle='#22c55e';
+  ctx.beginPath(); ctx.moveTo(p[0].x,p[0].y);
+  for(var i=1;i<4;i++) ctx.lineTo(p[i].x,p[i].y);
+  ctx.closePath(); ctx.stroke();
+  var hr=Math.max(10,W*0.026);
+  for(var j=0;j<4;j++){
+    ctx.beginPath(); ctx.arc(p[j].x,p[j].y,hr,0,Math.PI*2);
+    ctx.fillStyle='rgba(34,197,94,.30)'; ctx.fill();
+    ctx.lineWidth=lw; ctx.strokeStyle='#22c55e'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p[j].x,p[j].y,Math.max(2,lw*0.8),0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  }
+}
+/* ルーペ（ドラッグ中だけ出す） */
+function showLoupe(loupe,stage,srcCanvas,sx,sy,clientX,clientY,zoom){
+  var lc=loupe.getContext('2d'), S=loupe.width, half=S/(2*zoom);
+  lc.fillStyle='#000'; lc.fillRect(0,0,S,S);
+  lc.imageSmoothingEnabled=false;
+  lc.drawImage(srcCanvas, sx-half, sy-half, half*2, half*2, 0,0,S,S);
+  lc.strokeStyle='rgba(255,255,255,.85)'; lc.lineWidth=1;
+  lc.beginPath(); lc.moveTo(0,S/2); lc.lineTo(S,S/2); lc.moveTo(S/2,0); lc.lineTo(S/2,S); lc.stroke();
+  lc.strokeStyle='rgba(0,0,0,.6)'; lc.strokeRect(S/2-6,S/2-6,12,12);
+  var r=stage.getBoundingClientRect();
+  var lx=clientX-r.left-S/2, ly=clientY-r.top-S-30;
+  if(ly<6) ly=clientY-r.top+30;
+  loupe.style.left=clamp(lx,6,r.width-S-6)+'px';
+  loupe.style.top=clamp(ly,6,r.height-S-6)+'px';
+  loupe.classList.add('on');
+}
+function hideLoupe(l){ l.classList.remove('on'); }
+
+var cDrag=-1;
+viewCv.addEventListener('pointerdown',function(ev){
+  if(!quad) return;
+  var p=toCv(viewCv,ev.clientX,ev.clientY), k=viewCv.width/srcCv.width;
+  var best=-1, bd=Math.max(viewCv.width*0.10,34);
+  for(var i=0;i<4;i++){
+    var d=Math.hypot(p.x-quad[i].x*k, p.y-quad[i].y*k);
+    if(d<bd){ bd=d; best=i; }
+  }
+  if(best<0) return;
+  ev.preventDefault(); cDrag=best;
+  if(viewCv.setPointerCapture) viewCv.setPointerCapture(ev.pointerId);
+  moveCorner(ev);
+});
+function moveCorner(ev){
+  var p=toCv(viewCv,ev.clientX,ev.clientY), k=viewCv.width/srcCv.width;
+  quad[cDrag]={ x:clamp(p.x/k,0,srcCv.width), y:clamp(p.y/k,0,srcCv.height) };
+  drawCorners();
+  showLoupe($('loupe2'),$('stage2'),srcCv,quad[cDrag].x,quad[cDrag].y,ev.clientX,ev.clientY,4);
+}
+viewCv.addEventListener('pointermove',function(ev){ if(cDrag<0) return; ev.preventDefault(); moveCorner(ev); });
+function endCorner(){ if(cDrag>=0){ cDrag=-1; hideLoupe($('loupe2')); } }
+viewCv.addEventListener('pointerup',endCorner);
+viewCv.addEventListener('pointercancel',endCorner);
+$('autoQuadBtn').addEventListener('click',autoQuad);
+$('backTo1').addEventListener('click',function(){ step(1); });
+
+/* ========== ホモグラフィ ========== */
+function gauss(A,b){
+  var n=8,i,j,k,t;
+  for(i=0;i<n;i++){
+    var mx=Math.abs(A[i][i]), mi=i;
+    for(k=i+1;k<n;k++) if(Math.abs(A[k][i])>mx){ mx=Math.abs(A[k][i]); mi=k; }
+    if(mi!==i){ t=A[i];A[i]=A[mi];A[mi]=t; t=b[i];b[i]=b[mi];b[mi]=t; }
+    if(Math.abs(A[i][i])<1e-12) return null;
+    for(k=i+1;k<n;k++){
+      var f=A[k][i]/A[i][i];
+      for(j=i;j<n;j++) A[k][j]-=f*A[i][j];
+      b[k]-=f*b[i];
+    }
+  }
+  var x=new Array(n);
+  for(i=n-1;i>=0;i--){ var s=b[i]; for(j=i+1;j<n;j++) s-=A[i][j]*x[j]; x[i]=s/A[i][i]; }
+  return x;
+}
+/* dst(補正後) → src(元画像) の写像を直接求める＝逆写像サンプリング（穴が空かない） */
+function solveH(dst,src){
+  var A=[],b=[],i,p,q;
+  for(i=0;i<4;i++){
+    p=dst[i]; q=src[i];
+    A.push([p.x,p.y,1,0,0,0,-p.x*q.x,-p.y*q.x]); b.push(q.x);
+    A.push([0,0,0,p.x,p.y,1,-p.x*q.y,-p.y*q.y]); b.push(q.y);
+  }
+  return gauss(A,b);
+}
+function warp(){
+  var h=solveH([{x:0,y:0},{x:RW,y:0},{x:RW,y:RH},{x:0,y:RH}],quad);
+  if(!h) return false;
+  var SW=srcCv.width, SH=srcCv.height;
+  var sd=srcCv.getContext('2d').getImageData(0,0,SW,SH).data;
+  rectClean.width=RW; rectClean.height=RH;
+  var octx=rectClean.getContext('2d'), od=octx.createImageData(RW,RH), o=od.data;
+  var x,y,nu,nv,den,u,v,x0,y0,fx,fy,i0,i1,i2,i3,w0,w1,w2,w3,c,oi=0;
+  for(y=0;y<RH;y++){
+    nu=h[1]*y+h[2]; nv=h[4]*y+h[5]; den=h[7]*y+1;
+    for(x=0;x<RW;x++,oi+=4){
+      var dd=den||1e-9;
+      u=nu/dd; v=nv/dd;
+      nu+=h[0]; nv+=h[3]; den+=h[6];
+      if(u<0)u=0; else if(u>SW-1.001)u=SW-1.001;
+      if(v<0)v=0; else if(v>SH-1.001)v=SH-1.001;
+      x0=u|0; y0=v|0; fx=u-x0; fy=v-y0;
+      i0=(y0*SW+x0)*4; i1=i0+4; i2=i0+SW*4; i3=i2+4;
+      w0=(1-fx)*(1-fy); w1=fx*(1-fy); w2=(1-fx)*fy; w3=fx*fy;
+      for(c=0;c<3;c++) o[oi+c]=sd[i0+c]*w0+sd[i1+c]*w1+sd[i2+c]*w2+sd[i3+c]*w3;
+      o[oi+3]=255;
+    }
+  }
+  octx.putImageData(od,0,0);
+  /* 遠近の強さ＝対辺の長さ差。面内の回転は補正で完全に消えるので測らない */
+  function len(a,b){ return Math.hypot(quad[a].x-quad[b].x, quad[a].y-quad[b].y); }
+  var wTop=len(0,1), wBot=len(3,2), hL=len(0,3), hR=len(1,2);
+  skewPct=Math.max(Math.abs(wTop-wBot)/Math.max(wTop,wBot), Math.abs(hL-hR)/Math.max(hL,hR))*100;
+  return true;
+}
+
+/* ========== STEP3 : 内枠 ========== */
+$('toMeasure').addEventListener('click',function(){
+  toast('補正中…');
+  setTimeout(function(){
+    if(!warp()){ toast('4隅が一直線。角を離して'); return; }
+    rectCv.width=RW; rectCv.height=RH;
+    lines={ oL:0, oR:RW, oT:0, oB:RH,
+            iL:RW*0.055, iR:RW*0.945, iT:RH*0.045, iB:RH*0.955 };
+    autoInner();
+    step(3);
+    setTimeout(runOCR,60);   /* 正対化した画像で型式を読む（元写真より歪みが無い） */
+  },30);
+});
+$('backTo2').addEventListener('click',function(){ step(2); });
+$('restart').addEventListener('click',function(){
+  res={front:null,back:null}; cur=null; quad=null; lines=null;
+  $('bothBox').hidden=true; $('nudgeBox').hidden=true; lastLine=null;
+  switchSide('front'); step(1);
+});
+
+/* 内枠の自動検出：勾配プロファイル × 「枠は端から5%前後」という事前分布 */
+function autoInner(){
+  try{
+    var d=rectClean.getContext('2d').getImageData(0,0,RW,RH).data;
+    function L(x,y){ var i=(y*RW+x)*4; return d[i]*.30+d[i+1]*.59+d[i+2]*.11; }
+    var col=new Float32Array(RW), row=new Float32Array(RH), x,y,s;
+    var ya=(RH*0.25)|0, yb=(RH*0.75)|0, xa=(RW*0.25)|0, xb=(RW*0.75)|0;
+    for(x=3;x<RW-3;x++){ s=0; for(y=ya;y<yb;y+=2) s+=Math.abs(L(x+2,y)-L(x-2,y)); col[x]=s; }
+    for(y=3;y<RH-3;y++){ s=0; for(x=xa;x<xb;x+=2) s+=Math.abs(L(x,y+2)-L(x,y-2)); row[y]=s; }
+    function sm(p){ var q=new Float32Array(p.length),i;
+      for(i=3;i<p.length-3;i++) q[i]=(p[i-2]+2*p[i-1]+3*p[i]+2*p[i+1]+p[i+2])/9; return q; }
+    col=sm(col); row=sm(row);
+    function pick(p,lo,hi,exp,sp){
+      var best=-1,bv=-1,i;
+      for(i=lo;i<=hi;i++){
+        var v=p[i]/(1+Math.pow((i-exp)/sp,2));
+        if(v>bv){ bv=v; best=i; }
+      }
+      return best;
+    }
+    var eS=RW*0.055, eT=RH*0.042, spS=RW*0.075, spT=RH*0.055;
+    lines.iL=pick(col,(RW*0.012)|0,(RW*0.32)|0, eS, spS);
+    lines.iR=pick(col,(RW*0.68)|0,(RW*0.988)|0, RW-eS, spS);
+    lines.iT=pick(row,(RH*0.010)|0,(RH*0.30)|0, eT, spT);
+    lines.iB=pick(row,(RH*0.70)|0,(RH*0.990)|0, RH-eT, spT);
+    autoDetected=true;
+  }catch(e){ autoDetected=false; }
+  drawMeasure(); updateResult();
+}
+$('autoInnerBtn').addEventListener('click',function(){ autoInner(); toast('自動検出しなおした'); });
+
+/* 帯の色は判定パネルと同じ基準（表/裏で閾値が違う）で塗る */
+function tint(p){
+  var o=Math.abs(p-50), t10=PSA[side][0][1]-50, t9=PSA[side][1][1]-50;
+  return o<=t10?'rgba(34,197,94,.40)':(o<=t9?'rgba(245,158,11,.42)':'rgba(239,68,68,.44)');
+}
+function drawMeasure(){
+  var ctx=rectCv.getContext('2d');
+  ctx.drawImage(rectClean,0,0);
+  var oL=lines.oL,oR=lines.oR,oT=lines.oT,oB=lines.oB,iL=lines.iL,iR=lines.iR,iT=lines.iT,iB=lines.iB;
+  var m=margins(), lr=m.lr, tb=m.tb;
+  ctx.fillStyle=tint(lr); ctx.fillRect(oL,iT,iL-oL,iB-iT); ctx.fillRect(iR,iT,oR-iR,iB-iT);
+  ctx.fillStyle=tint(tb); ctx.fillRect(iL,oT,iR-iL,iT-oT); ctx.fillRect(iL,iB,iR-iL,oB-iB);
+  var lw=Math.max(2,RW*0.005), hr=Math.max(10,RW*0.022), fs=Math.max(18,RW*0.040);
+  ctx.setLineDash([]); ctx.lineWidth=lw; ctx.strokeStyle='#22c55e';
+  ctx.strokeRect(oL+lw/2,oT+lw/2,(oR-oL)-lw,(oB-oT)-lw);
+  ctx.setLineDash([lw*3,lw*2]); ctx.strokeStyle='#38bdf8'; ctx.strokeRect(iL,iT,iR-iL,iB-iT); ctx.setLineDash([]);
+  /* ハンドルは1つずつ beginPath する（連続 arc は subpath が線で繋がる） */
+  function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,hr,0,Math.PI*2); ctx.fill(); }
+  ctx.fillStyle='#22c55e';
+  dot(oL+lw,(oT+oB)/2); dot(oR-lw,(oT+oB)/2); dot((oL+oR)/2,oT+lw); dot((oL+oR)/2,oB-lw);
+  ctx.fillStyle='#38bdf8';
+  dot(iL,(iT+iB)/2); dot(iR,(iT+iB)/2); dot((iL+iR)/2,iT); dot((iL+iR)/2,iB);
+
+  /* 比率ラベル: 余白帯は狭いので、はみ出さないよう画面内にクランプして下地を敷く */
+  ctx.font='800 '+fs+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  function lab(x,y,t){
+    var padX=fs*0.36, padY=fs*0.24;
+    var w=ctx.measureText(t).width+padX*2, h=fs+padY*2, r=h*0.34;
+    var cx=clamp(x,w/2+4,RW-w/2-4), cy=clamp(y,h/2+4,RH-h/2-4);
+    var x0=cx-w/2, y0=cy-h/2;
+    ctx.beginPath();
+    ctx.moveTo(x0+r,y0); ctx.arcTo(x0+w,y0,x0+w,y0+h,r); ctx.arcTo(x0+w,y0+h,x0,y0+h,r);
+    ctx.arcTo(x0,y0+h,x0,y0,r); ctx.arcTo(x0,y0,x0+w,y0,r); ctx.closePath();
+    ctx.fillStyle='rgba(12,14,24,.78)'; ctx.fill();
+    ctx.fillStyle='#fff'; ctx.fillText(t,cx,cy);
+  }
+  lab((oL+iL)/2,(iT+iB)/2, fmt(lr,1));  lab((iR+oR)/2,(iT+iB)/2, fmt(100-lr,1));
+  lab((iL+iR)/2,(oT+iT)/2, fmt(tb,1));  lab((iL+iR)/2,(iB+oB)/2, fmt(100-tb,1));
+}
+function margins(){
+  var Lb=Math.max(0.5,lines.iL-lines.oL), Rb=Math.max(0.5,lines.oR-lines.iR);
+  var Tb=Math.max(0.5,lines.iT-lines.oT), Bb=Math.max(0.5,lines.oB-lines.iB);
+  var pxmmW=(lines.oR-lines.oL)/CARD_W_MM, pxmmH=(lines.oB-lines.oT)/CARD_H_MM;
+  return { lr:Lb/(Lb+Rb)*100, tb:Tb/(Tb+Bb)*100,
+           Lmm:Lb/pxmmW, Rmm:Rb/pxmmW, Tmm:Tb/pxmmH, Bmm:Bb/pxmmH };
+}
+
+/* ドラッグ（内枠・外枠の8本） */
+function nearestLine(p){
+  var th=Math.max(RW*0.055,26), best=null, bd=th, i, dd;
+  var vs=['oL','iL','iR','oR'], hs=['oT','iT','iB','oB'];
+  for(i=0;i<vs.length;i++){ dd=Math.abs(p.x-lines[vs[i]]); if(dd<bd){ bd=dd; best={k:vs[i],ax:'x'}; } }
+  for(i=0;i<hs.length;i++){ dd=Math.abs(p.y-lines[hs[i]]); if(dd<bd){ bd=dd; best={k:hs[i],ax:'y'}; } }
+  return best;
+}
+function setLine(k,v){
+  var m=6;
+  if(k==='oL') lines.oL=clamp(v,0,lines.iL-m);
+  else if(k==='iL') lines.iL=clamp(v,lines.oL+m,lines.iR-m);
+  else if(k==='iR') lines.iR=clamp(v,lines.iL+m,lines.oR-m);
+  else if(k==='oR') lines.oR=clamp(v,lines.iR+m,RW);
+  else if(k==='oT') lines.oT=clamp(v,0,lines.iT-m);
+  else if(k==='iT') lines.iT=clamp(v,lines.oT+m,lines.iB-m);
+  else if(k==='iB') lines.iB=clamp(v,lines.iT+m,lines.oB-m);
+  else if(k==='oB') lines.oB=clamp(v,lines.iB+m,RH);
+}
+rectCv.addEventListener('pointerdown',function(ev){
+  if(!lines) return;
+  var p=toCv(rectCv,ev.clientX,ev.clientY), h=nearestLine(p);
+  if(!h) return;
+  ev.preventDefault(); drag=h; lastLine=h; autoDetected=false;
+  $('nudgeBox').hidden=false; $('nudgeWho').textContent=LINE_JA[h.k];
+  if(rectCv.setPointerCapture) rectCv.setPointerCapture(ev.pointerId);
+  moveLine(ev);
+});
+function moveLine(ev){
+  var p=toCv(rectCv,ev.clientX,ev.clientY);
+  setLine(drag.k, drag.ax==='x'?p.x:p.y);
+  drawMeasure(); updateResult();
+  var lx=drag.ax==='x'?lines[drag.k]:clamp(p.x,0,RW);
+  var ly=drag.ax==='y'?lines[drag.k]:clamp(p.y,0,RH);
+  showLoupe($('loupe3'),$('stage3'),rectClean,lx,ly,ev.clientX,ev.clientY,4);
+}
+rectCv.addEventListener('pointermove',function(ev){ if(!drag) return; ev.preventDefault(); moveLine(ev); });
+function endLine(){ if(drag){ drag=null; hideLoupe($('loupe3')); } }
+rectCv.addEventListener('pointerup',endLine);
+rectCv.addEventListener('pointercancel',endLine);
+function nudge(dv){
+  if(!lastLine||!lines) return;
+  setLine(lastLine.k, lines[lastLine.k]+dv);
+  autoDetected=false; drawMeasure(); updateResult();
+}
+$('nMinus').addEventListener('click',function(){ nudge(-1); });
+$('nPlus').addEventListener('click',function(){ nudge(1); });
+
+/* ========== 判定 ========== */
+function worstOf(lr,tb){ return Math.max(Math.max(lr,100-lr), Math.max(tb,100-tb)); }
+function gradeOf(tbl,worst){
+  for(var i=0;i<tbl.length;i++) if(worst<=tbl[i][1]+1e-9)
+    return { g:tbl[i][0], th:tbl[i][1], margin:tbl[i][1]-worst };
+  var last=tbl[tbl.length-1];
+  return { g:null, th:last[1], margin:last[1]-worst };
+}
+function gradeColor(g){ if(g===null) return 'var(--bad)';
+  return g>=10?'var(--good)':(g>=9?'var(--warn)':'var(--bad)'); }
+function sideJa(s){ return s==='front'?'表':'裏'; }
+
+function updateResult(){
+  if(!lines) return;
+  var m=margins(), lr=m.lr, tb=m.tb, worst=worstOf(lr,tb);
+  var p=gradeOf(PSA[side],worst), b=gradeOf(BGS[side],worst);
+  cur={ side:side, lr:lr, tb:tb, worst:worst, psa:p, bgs:b,
+        Lmm:m.Lmm,Rmm:m.Rmm,Tmm:m.Tmm,Bmm:m.Bmm, skew:skewPct, ts:Date.now() };
+
+  $('psaBadge').textContent='PSA '+(p.g===null?'≤4':p.g);
+  $('psaBadge').style.background=gradeColor(p.g);
+  $('bgsTag').textContent='BGS中央 '+(b.g===null?'≤6.5':b.g);
+  $('bgsTag').style.background='#f1eefe'; $('bgsTag').style.color='#5b3fd6';
+
+  /* 面内の回転は補正で完全に消えるので測らない。効くのは遠近（対辺の長さ差）だけ。 */
+  var conf = skewPct>12 ? {t:'遠近ひずみ 大',bg:'#fff0f4',c:'#e11d63'}
+           : skewPct>6  ? {t:'遠近ひずみ 中',bg:'#fff4e5',c:'#b45309'}
+           : {t:'遠近ひずみ 小',bg:'#eaf7ee',c:'#15803d'};
+  $('confTag').textContent=conf.t+'（補正済 '+fmt(skewPct,0)+'%）';
+  $('confTag').style.background=conf.bg; $('confTag').style.color=conf.c;
+
+  var tenTh=PSA[side][0][1], gap=tenTh-worst, axis=(Math.max(lr,100-lr)>=Math.max(tb,100-tb))?'左右':'上下';
+  var txt;
+  if(gap>=1.5) txt='<span style="color:var(--good)">PSA10ライン（'+tenTh+':'+(100-tenTh)+'）まで余裕 '+fmt(gap,1)+'pt</span>';
+  else if(gap>=0) txt='<span style="color:var(--warn)">PSA10ラインまで '+fmt(gap,1)+'pt しかない＝実質ボーダー。'+axis+'次第</span>';
+  else if(gap>-1.5) txt='<span style="color:var(--warn)">PSA10ラインを '+fmt(-gap,1)+'pt 超過＝ボーダー。'+axis+'の線をもう一度詰めて</span>';
+  else txt='<span style="color:var(--bad)">PSA10ラインを '+fmt(-gap,1)+'pt 超過。効いているのは'+axis+'</span>';
+  $('marginNote').innerHTML='計測面: <b>'+sideJa(side)+'面</b> ／ 悪い方 '+fmt(worst,1)+':'+fmt(100-worst,1)+'<br>'+txt;
+
+  setBar('lr',lr,m.Lmm,m.Rmm,'左','右');
+  setBar('tb',tb,m.Tmm,m.Bmm,'上','下');
+
+  var v='センタリングは<b>上限</b>を決めるだけ。角・エッジ・表面・印刷は別評価。';
+  v+= autoDetected ? '<br>内枠は自動検出。<b>ルーペで境界を確認</b>してから信じること。'
+                   : '<br>内枠は手動で合わせた値。';
+  if(skewPct>12) v+='<br><b>遠近ひずみが大きい</b>。4隅がわずかにズレるだけで1pt動くので、真上から撮り直す方が速い。';
+  $('verdict').innerHTML=v;
+
+  renderBoth();
+}
+function setBar(pfx,val,mmA,mmB,na,nb){
+  var th=PSA[side][0][1];
+  $(pfx+'Text').textContent=fmt(val,1)+' : '+fmt(100-val,1);
+  $(pfx+'Fill').style.width=clamp(val,0,100)+'%';
+  var o=Math.abs(val-50);
+  $(pfx+'Fill').style.background = o<=(th-50)?'var(--good)':(o<=(PSA[side][1][1]-50)?'var(--warn)':'var(--bad)');
+  $(pfx+'C1').style.left=(100-th)+'%'; $(pfx+'C2').style.left=th+'%';
+  $(pfx+'Tick1').style.left=(100-th)+'%'; $(pfx+'Tick1').textContent=(100-th)+'';
+  $(pfx+'Tick2').style.left=th+'%'; $(pfx+'Tick2').textContent=th+'';
+  $(pfx+'Mm').textContent=na+' '+fmt(mmA,2)+'mm ／ '+nb+' '+fmt(mmB,2)+'mm';
+  var d=mmA-mmB;
+  $(pfx+'Dir').textContent = Math.abs(d)<0.02 ? 'ほぼ均等'
+    : (d>0? nb+'寄り '+fmt(Math.abs(d),2)+'mm' : na+'寄り '+fmt(Math.abs(d),2)+'mm');
+}
+function renderBoth(){
+  var f=res.front, b=res.back;
+  if(!f||!b){ $('bothBox').hidden=true; return; }
+  $('bothBox').hidden=false;
+  var psa=Math.min(f.psa.g===null?4:f.psa.g, b.psa.g===null?4:b.psa.g);
+  var bgs=Math.min(f.bgs.g===null?6.5:f.bgs.g, b.bgs.g===null?6.5:b.bgs.g);
+  function row(n,r){
+    return '<tr><td>'+n+'</td><td class="n">'+fmt(r.lr,1)+':'+fmt(100-r.lr,1)+'</td>'+
+      '<td class="n">'+fmt(r.tb,1)+':'+fmt(100-r.tb,1)+'</td>'+
+      '<td class="n">'+(r.psa.g===null?'≤4':r.psa.g)+'</td>'+
+      '<td class="n">'+(r.bgs.g===null?'≤6.5':r.bgs.g)+'</td></tr>';
+  }
+  $('bothTable').innerHTML=
+    '<tr><th>面</th><th>左右</th><th>上下</th><th>PSA</th><th>BGS中央</th></tr>'+
+    row('表',f)+row('裏',b)+
+    '<tr><td><b>上限</b></td><td colspan="2" style="color:var(--sub);font-size:11px">センタリングのみ</td>'+
+    '<td class="n">'+psa+'</td><td class="n">'+bgs+'</td></tr>';
+}
+function switchSide(s){
+  side=s;
+  $('sideFront').className=s==='front'?'on':'';
+  $('sideBack').className=s==='back'?'on':'';
+  $('commitBtn').textContent='この'+sideJa(s)+'面を確定 → '+sideJa(s==='front'?'back':'front')+'面を測る';
+  if(lines) drawMeasure();   /* 帯の色も面に合わせて塗り直す */
+  updateResult();
+}
+/* 面トグルは「いまの計測をどちらの基準で読むか」の切替。
+   表裏を別々に持つには、明示的に確定してからもう片面を撮り直す。 */
+$('commitBtn').addEventListener('click',function(){
+  if(!cur){ toast('計測がまだ'); return; }
+  res[side]=cur;
+  var other=side==='front'?'back':'front';
+  switchSide(other); renderBoth();
+  toast(sideJa(other)+'面を撮影して');
+  step(1);
+});
+$('sideFront').addEventListener('click',function(){ switchSide('front'); });
+$('sideBack').addEventListener('click',function(){ switchSide('back'); });
+
+/* ========== 出力 ========== */
+function resultText(){
+  var r=cur; if(!r) return '';
+  var name=$('ptype').value.trim(), d=new Date(r.ts);
+  var s='【センタリング計測】'+d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+'\n';
+  if(name) s+='カード: '+name+'\n';
+  s+='面: '+sideJa(r.side)+'\n';
+  s+='左右 '+fmt(r.lr,1)+' : '+fmt(100-r.lr,1)+'（左 '+fmt(r.Lmm,2)+'mm / 右 '+fmt(r.Rmm,2)+'mm）\n';
+  s+='上下 '+fmt(r.tb,1)+' : '+fmt(100-r.tb,1)+'（上 '+fmt(r.Tmm,2)+'mm / 下 '+fmt(r.Bmm,2)+'mm）\n';
+  s+='悪い方 '+fmt(r.worst,1)+':'+fmt(100-r.worst,1)+'\n';
+  s+='PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'（'+r.psa.th+':'+(100-r.psa.th)+'ラインまで '+
+     (r.psa.margin>=0?'余裕 '+fmt(r.psa.margin,1):'超過 '+fmt(-r.psa.margin,1))+'pt）\n';
+  s+='BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g)+'\n';
+  s+='遠近補正あり（台形 '+fmt(r.skew,0)+'%）／センタリングのみ・最終判断は現物';
+  return s;
+}
+function copyText(t){
+  function fallback(){
+    var ta=document.createElement('textarea'); ta.value=t;
+    ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta);
+    ta.select(); try{ document.execCommand('copy'); toast('コピーした'); }catch(e){ toast('コピー不可'); }
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    return navigator.clipboard.writeText(t).then(function(){ toast('コピーした'); },fallback);
+  fallback();
+}
+$('copyBtn').addEventListener('click',function(){ var t=resultText(); if(t) copyText(t); });
+
+$('imgBtn').addEventListener('click',function(){
+  if(!lines||!cur) return;
+  var pad=16, barH=132, W=RW+pad*2, H=RH+pad*2+barH;
+  var out=document.createElement('canvas'); out.width=W; out.height=H;
+  var c=out.getContext('2d'), r=cur;
+  c.fillStyle='#f6f7fc'; c.fillRect(0,0,W,H);
+  c.drawImage(rectCv,pad,pad);
+  c.fillStyle='#161a2b'; c.font='800 34px sans-serif'; c.textAlign='left'; c.textBaseline='top';
+  var name=$('ptype').value.trim();
+  c.fillText((name||'センタリング計測')+'  ['+sideJa(r.side)+'面]', pad, RH+pad+12);
+  c.font='700 30px sans-serif'; c.fillStyle='#6b7186';
+  c.fillText('左右 '+fmt(r.lr,1)+':'+fmt(100-r.lr,1)+'　上下 '+fmt(r.tb,1)+':'+fmt(100-r.tb,1), pad, RH+pad+56);
+  c.font='800 30px sans-serif'; c.fillStyle='#6d5cff';
+  c.fillText('PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'　BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g), pad, RH+pad+94);
+  out.toBlob(function(bl){
+    var u=URL.createObjectURL(bl), a=document.createElement('a');
+    a.href=u; a.download='centering_'+r.side+'_'+Date.now()+'.png';   /* 端末差を避けASCIIのみ */
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(u); },4000);
+    toast('画像を書き出した');
+  },'image/png');
+});
+
+/* ========== 記録 ========== */
+var HKEY='cc_hist_v1';
+function histLoad(){ try{ return JSON.parse(localStorage.getItem(HKEY)||'[]'); }catch(e){ return []; } }
+function histSave(a){ try{ localStorage.setItem(HKEY,JSON.stringify(a)); }catch(e){ toast('保存領域が一杯'); } }
+function thumb(){
+  var t=document.createElement('canvas'); t.width=90; t.height=Math.round(90*RH/RW);
+  t.getContext('2d').drawImage(rectClean,0,0,t.width,t.height);
+  try{ return t.toDataURL('image/jpeg',0.6); }catch(e){ return ''; }
+}
+$('saveBtn').addEventListener('click',function(){
+  var r=cur; if(!r){ toast('計測がまだ'); return; }
+  res[side]=r; renderBoth();          /* 記録＝確定 */
+  var a=histLoad();
+  a.unshift({ ts:r.ts, name:$('ptype').value.trim(), side:r.side,
+    lr:r.lr, tb:r.tb, worst:r.worst,
+    psa:(r.psa.g===null?'≤4':String(r.psa.g)), bgs:(r.bgs.g===null?'≤6.5':String(r.bgs.g)),
+    Lmm:r.Lmm,Rmm:r.Rmm,Tmm:r.Tmm,Bmm:r.Bmm, skew:r.skew, th:thumb() });
+  while(a.length>40) a.pop();
+  histSave(a); renderHist(); toast('記録した');
+});
+function histText(h){
+  var d=new Date(h.ts);
+  return ('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+' '+
+    (h.name||'(名前なし)')+' ['+(h.side==='front'?'表':'裏')+'] '+
+    '左右'+fmt(h.lr,1)+':'+fmt(100-h.lr,1)+' 上下'+fmt(h.tb,1)+':'+fmt(100-h.tb,1)+
+    ' PSA'+h.psa+' BGS'+h.bgs;
+}
+function renderHist(){
+  var a=histLoad(), out=$('histOut');
+  $('histTools').hidden=!a.length;
+  if(!a.length){ out.className='empty'; out.textContent='まだ記録がない'; return; }
+  out.className='';
+  var html='',i;
+  for(i=0;i<a.length;i++){
+    var h=a[i], d=new Date(h.ts);
+    html+='<div class="hitem">'+
+      (h.th?'<img src="'+h.th+'" alt="">':'<img alt="">')+
+      '<div class="m"><b>'+(h.name||'(名前なし)')+' <span style="font-weight:600;color:var(--sub)">'+(h.side==='front'?'表':'裏')+'</span></b>'+
+      '<span>左右 '+fmt(h.lr,1)+':'+fmt(100-h.lr,1)+' ／ 上下 '+fmt(h.tb,1)+':'+fmt(100-h.tb,1)+
+      ' ／ PSA'+h.psa+' BGS'+h.bgs+'<br>'+
+      d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+'</span></div>'+
+      '<button class="del" data-ts="'+h.ts+'" aria-label="削除">✕</button></div>';
+  }
+  out.innerHTML=html;
+  var dels=out.querySelectorAll('.del');
+  for(i=0;i<dels.length;i++) dels[i].addEventListener('click',function(){
+    var ts=Number(this.getAttribute('data-ts'));
+    histSave(histLoad().filter(function(x){ return x.ts!==ts; }));
+    renderHist();
+  });
+}
+$('histCopy').addEventListener('click',function(){ copyText(histLoad().map(histText).join('\n')); });
+$('histClear').addEventListener('click',function(){
+  if(confirm('記録を全部消す？')){ histSave([]); renderHist(); }
+});
+
+/* ========== 数値入力 ========== */
+function manualCalc(){
+  var L=parseFloat($('mL').value), R=parseFloat($('mR').value);
+  var T=parseFloat($('mT').value), B=parseFloat($('mB').value);
+  var parts=[], worst=0, any=false;
+  if(isFinite(L)&&isFinite(R)&&(L+R)>0){
+    var lr=L/(L+R)*100; any=true; worst=Math.max(worst,Math.max(lr,100-lr));
+    parts.push('左右 <b>'+fmt(lr,1)+' : '+fmt(100-lr,1)+'</b>');
+  }
+  if(isFinite(T)&&isFinite(B)&&(T+B)>0){
+    var tb=T/(T+B)*100; any=true; worst=Math.max(worst,Math.max(tb,100-tb));
+    parts.push('上下 <b>'+fmt(tb,1)+' : '+fmt(100-tb,1)+'</b>');
+  }
+  if(!any){ $('manualOut').innerHTML='左右・上下それぞれ2つ入れると比率とグレード上限が出る（単位は揃っていれば何でもいい）。'; return; }
+  var pf=gradeOf(PSA.front,worst), pb=gradeOf(PSA.back,worst), bf=gradeOf(BGS.front,worst);
+  $('manualOut').innerHTML=parts.join('　')+'<br>悪い方 '+fmt(worst,1)+':'+fmt(100-worst,1)+
+    '<br>表面として: PSA <b>'+(pf.g===null?'≤4':pf.g)+'</b>（'+pf.th+'ラインまで '+
+    (pf.margin>=0?'余裕 '+fmt(pf.margin,1):'超過 '+fmt(-pf.margin,1))+'pt）／ BGS中央 <b>'+(bf.g===null?'≤6.5':bf.g)+'</b>'+
+    '<br>裏面として: PSA <b>'+(pb.g===null?'≤4':pb.g)+'</b>';
+}
+['mL','mR','mT','mB'].forEach(function(id){ $(id).addEventListener('input',manualCalc); });
+
+/* ========== 相場（カード名 or 型式で検索 → 候補選択） ========== */
+var ptype=$('ptype'), priceOut=$('priceOut');
+function slug(t){ return String(t).trim().toLowerCase().replace(/[\s/]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,''); }
+function yen(v){ return (typeof v==='number')?'¥'+v.toLocaleString():'—'; }
+function norm(s){ return String(s).toLowerCase().replace(/[\s・=&＆]/g,''); }
+function codeOf(k){
+  var p=k.split('-');
+  if(p.length>=2 && /^\d+$/.test(p[p.length-1]) && /^[0-9a-z]+$/.test(p[p.length-2]))
+    return (p.slice(0,-2).join(' ')+' '+p[p.length-2]+'/'+p[p.length-1]).toUpperCase().trim();
+  return k.toUpperCase();
+}
+function search(){
+  var q=ptype.value.trim();
+  if(!q){ priceOut.className='empty'; priceOut.textContent='カード名を入れると候補が出る'; return; }
+  var nq=norm(q), sq=slug(q), keys=Object.keys(PRICES), hit=[], i;
+  for(i=0;i<keys.length;i++){
+    var k=keys[i], c=PRICES[k];
+    if(norm(c.name||'').indexOf(nq)>=0 || k.indexOf(sq)>=0) hit.push(k);
+  }
+  if(!hit.length){ priceOut.className='empty';
+    priceOut.innerHTML='<span class="chip" style="background:#fff0f4;color:#e11d63">未収録</span> 別名・ひらがな・型式でも試して。無ければスニダン現物で。'; return; }
+  hit.sort(function(a,b){ return (PRICES[b].psa10||0)-(PRICES[a].psa10||0); });
+  if(hit.length>12) hit=hit.slice(0,12);
+  if(hit.length===1){ showDetail(hit[0],false); return; }
+  var html='<div class="empty" style="margin:2px 0 4px">'+hit.length+'件の候補 — タップで選択（同名多数）</div>';
+  for(i=0;i<hit.length;i++){
+    var kk=hit[i], cc=PRICES[kk];
+    html+='<div class="cand" data-k="'+kk+'"><div class="nm"><b>'+(cc.name||'')+'</b><span>'+codeOf(kk)+'</span></div>'+
+      '<div class="pr"><div class="p10">PSA10 '+yen(cc.psa10)+'</div><div class="rw">素体 '+yen(cc.sotai)+'</div></div></div>';
+  }
+  priceOut.className=''; priceOut.innerHTML=html;
+  var cs=priceOut.querySelectorAll('.cand');
+  for(i=0;i<cs.length;i++) cs[i].addEventListener('click',function(){ showDetail(this.getAttribute('data-k'),true); });
+}
+function showDetail(k,back){
+  var c=PRICES[k]; if(!c) return;
+  priceOut.className='';
+  priceOut.innerHTML=(back?'<span class="back" id="backBtn">← 候補に戻る</span>':'')+
+    '<div class="cardname">'+(c.name||'')+' <span style="font-size:12px;color:var(--sub);font-weight:600">'+codeOf(k)+'</span></div>'+
+    '<div class="prices">'+
+    '<div class="pill psa"><div class="k">PSA10</div><div class="v">'+yen(c.psa10)+'</div></div>'+
+    '<div class="pill raw"><div class="k">素体</div><div class="v">'+yen(c.sotai)+'</div></div></div>'+
+    '<div class="src">出典 '+(c.src||'')+'（算定値）・最終値付けはスニダン現物で</div>';
+  var b=$('backBtn'); if(b) b.addEventListener('click',search);
+}
+ptype.addEventListener('input',search);
+
+/* ========== 型式OCR（Tesseract.jsは使う時だけ遅延ロード） ==========
+   補正後の rectClean から読む。カードが必ず同じ向き・同じ大きさに正規化されるので、
+   元写真の下20%を切っていた頃より背景も歪みも入らない。 */
+var ocrReady=null;
+function loadOCR(){
+  if(ocrReady) return ocrReady;
+  ocrReady=new Promise(function(resolve,reject){
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload=function(){ resolve(window.Tesseract); }; s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  return ocrReady;
+}
+function cropBottom(){
+  var ch=Math.round(RH*0.18), cy=RH-ch, sc=2;
+  var up=document.createElement('canvas'); up.width=RW*sc; up.height=ch*sc;
+  var uc=up.getContext('2d'); uc.imageSmoothingEnabled=true;
+  uc.drawImage(rectClean,0,cy,RW,ch,0,0,up.width,up.height);
+  var im=uc.getImageData(0,0,up.width,up.height), d=im.data, i,g,mn=255,mx=0;
+  for(i=0;i<d.length;i+=4){ g=d[i]*.3+d[i+1]*.59+d[i+2]*.11; d[i]=d[i+1]=d[i+2]=g; if(g<mn)mn=g; if(g>mx)mx=g; }
+  var rng=Math.max(1,mx-mn);
+  for(i=0;i<d.length;i+=4){ var v=(d[i]-mn)/rng*255; d[i]=d[i+1]=d[i+2]=v<0?0:(v>255?255:v); }
+  uc.putImageData(im,0,0); return up;
+}
+function extractType(text){   /* 採番(223/193)だけ狙う。特殊フォントのセット記号は無視 */
+  var s=(text||'').toUpperCase().replace(/\s+/g,' ');
+  var m=s.match(/(\d{1,3})\s*\/\s*([0-9SVP\-]{1,7})/);   /* 223/193, 289/SV-P */
+  if(m) return m[1]+'/'+m[2];
+  m=s.match(/(\d{2,3})\D{1,3}(\d{2,3})/);                /* スラッシュ誤読の保険 */
+  if(m) return m[1]+'/'+m[2];
+  return null;
+}
+function runOCR(){
+  if(!rectClean.width) return;
+  loadOCR().then(function(T){
+    return T.recognize(cropBottom(),'eng',{tessedit_char_whitelist:'0123456789/SVP-',tessedit_pageseg_mode:'6'});
+  }).then(function(r){
+    var t=extractType((r&&r.data&&r.data.text)||'');
+    if(t && !ptype.value.trim()){ ptype.value=t; search(); }
+  }).catch(function(){});
+}
+
+/* ========== 起動 ========== */
+renderHist();
+switchSide('front');
+step(1);
+if('serviceWorker' in navigator && location.protocol==='https:')
+  navigator.serviceWorker.register('sw.js').catch(function(){});
 })();
 </script>
 </body>

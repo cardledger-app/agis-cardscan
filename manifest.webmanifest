@@ -1,8 +1,8 @@
 {
-  "name": "Centering — カードセンタリング計測",
-  "short_name": "Centering",
-  "description": "カードのセンタリングを遠近補正つきで実測し、PSA/BGSの中央値ラインまでの余裕まで出す計測アプリ。",
-  "start_url": "centering.html",
+  "name": "AgiS — カードスキャン",
+  "short_name": "AgiS",
+  "description": "スマホで撮って、カードのセンタリングを遠近補正つきで実測。型式OCRから相場も引く。",
+  "start_url": "index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

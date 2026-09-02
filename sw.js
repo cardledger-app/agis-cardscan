@@ -1,9 +1,10 @@
-/* Centering — オフライン用 Service Worker
+/* AgiS カードスキャン — オフライン用 Service Worker
    方針: network-first（オンラインなら常に最新、圏外ならキャッシュ）。
    店頭で電波が弱くても開ける／更新してもキャッシュに閉じ込められない、の両立。 */
-var CACHE = 'centering-v1';
+var CACHE = 'agis-cardscan-v2';
 var SHELL = [
-  './centering.html',
+  './index.html',
+  './prices.json',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png'
@@ -42,7 +43,7 @@ self.addEventListener('fetch', function (e) {
       return res;
     }).catch(function () {
       return caches.match(req).then(function (hit) {
-        return hit || caches.match('./centering.html');
+        return hit || caches.match('./index.html');
       });
     })
   );
