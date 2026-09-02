@@ -70,11 +70,14 @@
   .cand .nm span{ font-size:11px; color:var(--sub); } .cand .pr{ text-align:right; font-size:12px; font-weight:700; white-space:nowrap; }
   .cand .pr .p10{ color:var(--brand1); } .cand .pr .rw{ color:var(--sub); font-weight:600; }
   .back{ font-size:12px; color:var(--brand1); font-weight:700; margin-bottom:6px; display:inline-block; }
+  .top .home{ margin-left:auto; font-size:12px; font-weight:700; color:var(--brand1); text-decoration:none; }
+  .xlink{ display:block; margin-top:10px; font-size:12px; font-weight:700; color:var(--brand1); text-decoration:none; }
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="top"><div class="logo">🎴</div><div class="brand">AgiS <small>CARD SCAN</small></div></div>
+  <div class="top"><div class="logo">🎴</div><div class="brand">AgiS <small>CARD SCAN</small></div>
+    <a class="home" href="centering.html">センタリング計測 →</a></div>
 
   <div class="stage" id="stage">
     <video id="video" playsinline muted></video>
@@ -98,6 +101,7 @@
         <div class="bar"><div class="fill" id="tbFill"></div><div class="c1"></div><div class="c2"></div></div></div>
       <div class="verdict" id="verdict"></div>
       <div class="mini" style="margin-top:12px"><button id="redetect">↻ 自動再検出</button></div>
+      <a class="xlink" href="centering.html">→ ちゃんと測る（遠近補正つきセンタリング計測アプリ）</a>
     </div>
   </div>
 
@@ -238,11 +242,12 @@
     // 外枠（緑・カード縁）と絵柄枠（水色・破線）を"四角"で
     ctx.lineWidth=lw; ctx.setLineDash([]); ctx.strokeStyle='#22c55e'; ctx.strokeRect(oL,oT,oR-oL,oB-oT);
     ctx.setLineDash([lw*3,lw*2]); ctx.strokeStyle='#38bdf8'; ctx.strokeRect(iL,iT,iR-iL,iB-iT); ctx.setLineDash([]);
-    // ハンドル（各辺の中央●）
+    // ハンドル（各辺の中央●）※連続 arc は subpath が線で繋がるので1つずつ beginPath する
+    function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,hr,0,Math.PI*2); ctx.fill(); }
     ctx.fillStyle='#22c55e';
-    ctx.beginPath(); ctx.arc(oL,(oT+oB)/2,hr,0,7); ctx.arc(oR,(oT+oB)/2,hr,0,7); ctx.arc((oL+oR)/2,oT,hr,0,7); ctx.arc((oL+oR)/2,oB,hr,0,7); ctx.fill();
+    dot(oL,(oT+oB)/2); dot(oR,(oT+oB)/2); dot((oL+oR)/2,oT); dot((oL+oR)/2,oB);
     ctx.fillStyle='#38bdf8';
-    ctx.beginPath(); ctx.arc(iL,(iT+iB)/2,hr,0,7); ctx.arc(iR,(iT+iB)/2,hr,0,7); ctx.arc((iL+iR)/2,iT,hr,0,7); ctx.arc((iL+iR)/2,iB,hr,0,7); ctx.fill();
+    dot(iL,(iT+iB)/2); dot(iR,(iT+iB)/2); dot((iL+iR)/2,iT); dot((iL+iR)/2,iB);
     // 各辺の比率を画像に直接ラベル
     ctx.font='800 '+fs+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     function lab(x,y,t){ ctx.lineWidth=fs*0.22; ctx.strokeStyle='rgba(0,0,0,.75)'; ctx.strokeText(t,x,y); ctx.fillStyle='#fff'; ctx.fillText(t,x,y); }
