@@ -76,6 +76,12 @@
   .seg{ display:flex; background:#eef0f8; border-radius:999px; padding:3px; margin-bottom:12px; }
   .seg button{ flex:1; border:0; background:transparent; padding:9px 0; border-radius:999px; font-weight:800; font-size:13px; color:var(--sub); font-family:inherit; }
   .seg button.on{ background:#fff; color:var(--ink); box-shadow:0 2px 8px rgba(60,50,120,.14); }
+  /* 計測モード（枠あり / フチなし）は面トグルの下に小さく置く */
+  .seg.sub{ margin:-4px 0 8px; background:#f4f5fa; }
+  .seg.sub button{ font-size:11.5px; padding:8px 2px; }
+  .modeNote{ font-size:11.5px; color:var(--sub); line-height:1.55; margin:0 0 12px; }
+  .modeNote b{ color:var(--ink); }
+  .btn:disabled{ opacity:.4; }
 
   .gradeRow{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .psaBadge{ font-size:26px; font-weight:800; padding:3px 16px; border-radius:14px; color:#fff; }
@@ -201,6 +207,12 @@
         <button id="sideFront" class="on">表面</button>
         <button id="sideBack">裏面</button>
       </div>
+      <div class="seg sub" id="modeSeg">
+        <button id="mFramed" class="on">枠あり</button>
+        <button id="mNone">フチなし</button>
+        <button id="mRef">フチなし・参考</button>
+      </div>
+      <div class="modeNote" id="modeNote"></div>
       <div class="gradeRow">
         <span class="psaBadge" id="psaBadge">–</span>
         <span class="tag" id="bgsTag">BGS –</span>
@@ -224,6 +236,7 @@
       <div id="bothBox" hidden>
         <h3 style="margin-top:16px">確定済み（表裏あわせた上限）</h3>
         <table class="g" id="bothTable"></table>
+        <div class="hint" id="bothNote" hidden>* はフチなし面を自分で置いた基準で測った参考値。上限には入れていない。</div>
       </div>
 
       <div class="hint" id="verdict"></div>
@@ -306,6 +319,18 @@ var BGS={ front:[[10,50],[9.5,55],[9,60],[8.5,65],[8,70],[7.5,75],[7,80]],
 var LINE_JA={oL:'左のカード縁',oR:'右のカード縁',oT:'上のカード縁',oB:'下のカード縁',
              iL:'左の内枠',iR:'右の内枠',iT:'上の内枠',iB:'下の内枠'};
 
+/* 計測モード（フチなし対応）
+   フルアート/SAR は内枠が無いので「カード縁と内枠の余白比」がそもそも定義できない。
+   自動検出させれば絵柄のどこかを拾って数字は出るが、それは基準の無い数字で害の方が大きい。
+     framed = 枠あり（従来）
+     none   = フチなし。この面は測定対象外にして、上限は反対の面だけで出す
+     ref    = フチなし。絵柄の中の要素を人が基準に選んで測る（参考値。上限には使わない） */
+var MODE_NOTE={
+  framed:'枠のあるカード。カード縁と内枠の余白比で測る。',
+  none:'内枠が無い面（フルアート/SAR など）。<b>この面は測定対象外</b>にして、上限は反対の面だけで出す。実機のグレーダーも縁の無い面のセンタリングは反対の面で見る。',
+  ref:'内枠が無い面を、<b>絵柄の中の繰り返し要素</b>（テキスト枠の縁、箔の縁など）を自分で基準にして測る。基準を人が決めている以上ほかの人と揃わないので、<b>参考値</b>扱いで上限グレードには入れない。'
+};
+
 /* ========== 状態 ========== */
 var srcCv=document.createElement('canvas');    /* 撮影/選択した画像（縮小済み） */
 var viewCv=$('cornerCv');                      /* STEP2 表示用 */
@@ -317,6 +342,7 @@ var lines=null;       /* {oL,iL,iR,oR,oT,iT,iB,oB} : rectCv 画素座標 */
 var side='front';
 var cur=null;                   /* いま画面に出ている計測（未確定） */
 var res={front:null,back:null}; /* 確定済み。面トグルでは書き換えない */
+var smode={front:'framed',back:'framed'};  /* 面ごとの計測モード。下の MODE_NOTE を参照 */
 var lastLine=null, drag=null, autoDetected=false, skewPct=0;
 var PRICES={};
 
@@ -594,7 +620,7 @@ $('toMeasure').addEventListener('click',function(){
     rectCv.width=RW; rectCv.height=RH;
     lines={ oL:0, oR:RW, oT:0, oB:RH,
             iL:RW*0.055, iR:RW*0.945, iT:RH*0.045, iB:RH*0.955 };
-    autoInner();
+    if(modeOf(side)==='none'){ drawMeasure(); updateResult(); } else autoInner();
     step(3);
     setTimeout(runOCR,60);   /* 正対化した画像で型式を読む（元写真より歪みが無い） */
   },30);
@@ -602,12 +628,36 @@ $('toMeasure').addEventListener('click',function(){
 $('backTo2').addEventListener('click',function(){ step(2); });
 $('restart').addEventListener('click',function(){
   res={front:null,back:null}; cur=null; quad=null; lines=null;
+  smode={front:'framed',back:'framed'};
   $('bothBox').hidden=true; $('nudgeBox').hidden=true; lastLine=null;
   switchSide('front'); step(1);
 });
 
+function modeOf(s){ return smode[s]||'framed'; }
+function syncModeUI(){
+  var m=modeOf(side);
+  $('mFramed').className=(m==='framed'?'on':'');
+  $('mNone').className=(m==='none'?'on':'');
+  $('mRef').className=(m==='ref'?'on':'');
+  $('autoInnerBtn').disabled=(m==='none');
+  $('modeNote').innerHTML=MODE_NOTE[m];
+  if(m==='none') $('nudgeBox').hidden=true;
+}
+function setMode(m){
+  var prev=modeOf(side);
+  smode[side]=m; syncModeUI();
+  /* none から戻ってきた時だけ内枠を拾い直す（none の間は自動検出を止めているため） */
+  if(lines && m==='framed' && prev==='none'){ autoInner(); return; }
+  if(lines) drawMeasure();
+  updateResult();
+}
+$('mFramed').addEventListener('click',function(){ setMode('framed'); });
+$('mNone').addEventListener('click',function(){ setMode('none'); });
+$('mRef').addEventListener('click',function(){ setMode('ref'); });
+
 /* 内枠の自動検出：勾配プロファイル × 「枠は端から5%前後」という事前分布 */
 function autoInner(){
+  if(modeOf(side)==='none'){ drawMeasure(); updateResult(); return; }
   try{
     var d=rectClean.getContext('2d').getImageData(0,0,RW,RH).data;
     function L(x,y){ var i=(y*RW+x)*4; return d[i]*.30+d[i+1]*.59+d[i+2]*.11; }
@@ -635,46 +685,65 @@ function autoInner(){
   }catch(e){ autoDetected=false; }
   drawMeasure(); updateResult();
 }
-$('autoInnerBtn').addEventListener('click',function(){ autoInner(); toast('自動検出しなおした'); });
+$('autoInnerBtn').addEventListener('click',function(){
+  if(modeOf(side)==='none'){ toast('フチなし＝測定対象外'); return; }
+  autoInner();
+  toast(modeOf(side)==='ref' ? '当たりを付けただけ。絵柄の基準に自分で置き直して' : '自動検出しなおした');
+});
 
-/* 帯の色は判定パネルと同じ基準（表/裏で閾値が違う）で塗る */
+/* 帯の色は判定パネルと同じ基準（表/裏で閾値が違う）で塗る。
+   参考モードは基準が人任せなので、グレードの色を付けず中立の灰にする。 */
 function tint(p){
+  if(modeOf(side)==='ref') return 'rgba(148,163,184,.34)';
   var o=Math.abs(p-50), t10=PSA[side][0][1]-50, t9=PSA[side][1][1]-50;
   return o<=t10?'rgba(34,197,94,.40)':(o<=t9?'rgba(245,158,11,.42)':'rgba(239,68,68,.44)');
+}
+/* ラベル: 余白帯は狭いので、はみ出さないよう画面内にクランプして下地を敷く */
+function lab(ctx,x,y,t,fs){
+  var padX=fs*0.36, padY=fs*0.24;
+  var w=ctx.measureText(t).width+padX*2, h=fs+padY*2, r=h*0.34;
+  var cx=clamp(x,w/2+4,RW-w/2-4), cy=clamp(y,h/2+4,RH-h/2-4);
+  var x0=cx-w/2, y0=cy-h/2;
+  ctx.beginPath();
+  ctx.moveTo(x0+r,y0); ctx.arcTo(x0+w,y0,x0+w,y0+h,r); ctx.arcTo(x0+w,y0+h,x0,y0+h,r);
+  ctx.arcTo(x0,y0+h,x0,y0,r); ctx.arcTo(x0,y0,x0+w,y0,r); ctx.closePath();
+  ctx.fillStyle='rgba(12,14,24,.78)'; ctx.fill();
+  ctx.fillStyle='#fff'; ctx.fillText(t,cx,cy);
 }
 function drawMeasure(){
   var ctx=rectCv.getContext('2d');
   ctx.drawImage(rectClean,0,0);
+  var mode=modeOf(side);
+  var lw=Math.max(2,RW*0.005), hr=Math.max(10,RW*0.022), fs=Math.max(18,RW*0.040);
+  ctx.font='800 '+fs+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+
+  /* フチなし＝測定対象外。内枠を描くと「測れている」ように見えるのでカード縁だけ出す */
+  if(mode==='none'){
+    ctx.setLineDash([]); ctx.lineWidth=lw; ctx.strokeStyle='#22c55e';
+    ctx.strokeRect(lw/2,lw/2,RW-lw,RH-lw);
+    lab(ctx,RW/2,RH/2,'フチなし ／ この面は測定対象外',fs);
+    return;
+  }
+
   var oL=lines.oL,oR=lines.oR,oT=lines.oT,oB=lines.oB,iL=lines.iL,iR=lines.iR,iT=lines.iT,iB=lines.iB;
   var m=margins(), lr=m.lr, tb=m.tb;
   ctx.fillStyle=tint(lr); ctx.fillRect(oL,iT,iL-oL,iB-iT); ctx.fillRect(iR,iT,oR-iR,iB-iT);
   ctx.fillStyle=tint(tb); ctx.fillRect(iL,oT,iR-iL,iT-oT); ctx.fillRect(iL,iB,iR-iL,oB-iB);
-  var lw=Math.max(2,RW*0.005), hr=Math.max(10,RW*0.022), fs=Math.max(18,RW*0.040);
+  /* 参考モードの内枠は「自分で置いた基準」なので、印刷された内枠(水色)と色を分ける */
+  var inner = mode==='ref' ? '#a855f7' : '#38bdf8';
   ctx.setLineDash([]); ctx.lineWidth=lw; ctx.strokeStyle='#22c55e';
   ctx.strokeRect(oL+lw/2,oT+lw/2,(oR-oL)-lw,(oB-oT)-lw);
-  ctx.setLineDash([lw*3,lw*2]); ctx.strokeStyle='#38bdf8'; ctx.strokeRect(iL,iT,iR-iL,iB-iT); ctx.setLineDash([]);
+  ctx.setLineDash([lw*3,lw*2]); ctx.strokeStyle=inner; ctx.strokeRect(iL,iT,iR-iL,iB-iT); ctx.setLineDash([]);
   /* ハンドルは1つずつ beginPath する（連続 arc は subpath が線で繋がる） */
   function dot(x,y){ ctx.beginPath(); ctx.arc(x,y,hr,0,Math.PI*2); ctx.fill(); }
   ctx.fillStyle='#22c55e';
   dot(oL+lw,(oT+oB)/2); dot(oR-lw,(oT+oB)/2); dot((oL+oR)/2,oT+lw); dot((oL+oR)/2,oB-lw);
-  ctx.fillStyle='#38bdf8';
+  ctx.fillStyle=inner;
   dot(iL,(iT+iB)/2); dot(iR,(iT+iB)/2); dot((iL+iR)/2,iT); dot((iL+iR)/2,iB);
 
-  /* 比率ラベル: 余白帯は狭いので、はみ出さないよう画面内にクランプして下地を敷く */
-  ctx.font='800 '+fs+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  function lab(x,y,t){
-    var padX=fs*0.36, padY=fs*0.24;
-    var w=ctx.measureText(t).width+padX*2, h=fs+padY*2, r=h*0.34;
-    var cx=clamp(x,w/2+4,RW-w/2-4), cy=clamp(y,h/2+4,RH-h/2-4);
-    var x0=cx-w/2, y0=cy-h/2;
-    ctx.beginPath();
-    ctx.moveTo(x0+r,y0); ctx.arcTo(x0+w,y0,x0+w,y0+h,r); ctx.arcTo(x0+w,y0+h,x0,y0+h,r);
-    ctx.arcTo(x0,y0+h,x0,y0,r); ctx.arcTo(x0,y0,x0+w,y0,r); ctx.closePath();
-    ctx.fillStyle='rgba(12,14,24,.78)'; ctx.fill();
-    ctx.fillStyle='#fff'; ctx.fillText(t,cx,cy);
-  }
-  lab((oL+iL)/2,(iT+iB)/2, fmt(lr,1));  lab((iR+oR)/2,(iT+iB)/2, fmt(100-lr,1));
-  lab((iL+iR)/2,(oT+iT)/2, fmt(tb,1));  lab((iL+iR)/2,(iB+oB)/2, fmt(100-tb,1));
+  var sfx = mode==='ref' ? '*' : '';
+  lab(ctx,(oL+iL)/2,(iT+iB)/2, fmt(lr,1)+sfx, fs);  lab(ctx,(iR+oR)/2,(iT+iB)/2, fmt(100-lr,1)+sfx, fs);
+  lab(ctx,(iL+iR)/2,(oT+iT)/2, fmt(tb,1)+sfx, fs);  lab(ctx,(iL+iR)/2,(iB+oB)/2, fmt(100-tb,1)+sfx, fs);
 }
 function margins(){
   var Lb=Math.max(0.5,lines.iL-lines.oL), Rb=Math.max(0.5,lines.oR-lines.iR);
@@ -704,7 +773,7 @@ function setLine(k,v){
   else if(k==='oB') lines.oB=clamp(v,lines.iB+m,RH);
 }
 rectCv.addEventListener('pointerdown',function(ev){
-  if(!lines) return;
+  if(!lines || modeOf(side)==='none') return;
   var p=toCv(rectCv,ev.clientX,ev.clientY), h=nearestLine(p);
   if(!h) return;
   ev.preventDefault(); drag=h; lastLine=h; autoDetected=false;
@@ -725,7 +794,7 @@ function endLine(){ if(drag){ drag=null; hideLoupe($('loupe3')); } }
 rectCv.addEventListener('pointerup',endLine);
 rectCv.addEventListener('pointercancel',endLine);
 function nudge(dv){
-  if(!lastLine||!lines) return;
+  if(!lastLine||!lines||modeOf(side)==='none') return;
   setLine(lastLine.k, lines[lastLine.k]+dv);
   autoDetected=false; drawMeasure(); updateResult();
 }
@@ -744,81 +813,149 @@ function gradeColor(g){ if(g===null) return 'var(--bad)';
   return g>=10?'var(--good)':(g>=9?'var(--warn)':'var(--bad)'); }
 function sideJa(s){ return s==='front'?'表':'裏'; }
 
-function updateResult(){
-  if(!lines) return;
-  var m=margins(), lr=m.lr, tb=m.tb, worst=worstOf(lr,tb);
-  var p=gradeOf(PSA[side],worst), b=gradeOf(BGS[side],worst);
-  cur={ side:side, lr:lr, tb:tb, worst:worst, psa:p, bgs:b,
-        Lmm:m.Lmm,Rmm:m.Rmm,Tmm:m.Tmm,Bmm:m.Bmm, skew:skewPct, ts:Date.now() };
-
-  $('psaBadge').textContent='PSA '+(p.g===null?'≤4':p.g);
-  $('psaBadge').style.background=gradeColor(p.g);
-  $('bgsTag').textContent='BGS中央 '+(b.g===null?'≤6.5':b.g);
-  $('bgsTag').style.background='#f1eefe'; $('bgsTag').style.color='#5b3fd6';
-
-  /* 面内の回転は補正で完全に消えるので測らない。効くのは遠近（対辺の長さ差）だけ。 */
+/* 面内の回転は補正で完全に消えるので測らない。効くのは遠近（対辺の長さ差）だけ。 */
+function setConfTag(){
   var conf = skewPct>12 ? {t:'遠近ひずみ 大',bg:'#fff0f4',c:'#e11d63'}
            : skewPct>6  ? {t:'遠近ひずみ 中',bg:'#fff4e5',c:'#b45309'}
            : {t:'遠近ひずみ 小',bg:'#eaf7ee',c:'#15803d'};
   $('confTag').textContent=conf.t+'（補正済 '+fmt(skewPct,0)+'%）';
   $('confTag').style.background=conf.bg; $('confTag').style.color=conf.c;
+}
+function updateResult(){
+  var mode=modeOf(side), other=(side==='front'?'back':'front');
 
-  var tenTh=PSA[side][0][1], gap=tenTh-worst, axis=(Math.max(lr,100-lr)>=Math.max(tb,100-tb))?'左右':'上下';
-  var txt;
-  if(gap>=1.5) txt='<span style="color:var(--good)">PSA10ライン（'+tenTh+':'+(100-tenTh)+'）まで余裕 '+fmt(gap,1)+'pt</span>';
-  else if(gap>=0) txt='<span style="color:var(--warn)">PSA10ラインまで '+fmt(gap,1)+'pt しかない＝実質ボーダー。'+axis+'次第</span>';
-  else if(gap>-1.5) txt='<span style="color:var(--warn)">PSA10ラインを '+fmt(-gap,1)+'pt 超過＝ボーダー。'+axis+'の線をもう一度詰めて</span>';
-  else txt='<span style="color:var(--bad)">PSA10ラインを '+fmt(-gap,1)+'pt 超過。効いているのは'+axis+'</span>';
-  $('marginNote').innerHTML='計測面: <b>'+sideJa(side)+'面</b> ／ 悪い方 '+fmt(worst,1)+':'+fmt(100-worst,1)+'<br>'+txt;
+  /* フチなし＝測れない。数字を出さずに「測らない」と明示する */
+  if(mode==='none'){
+    cur={ side:side, mode:'none', skew:skewPct, ts:Date.now() };
+    $('psaBadge').textContent='PSA —'; $('psaBadge').style.background='#aab0c4';
+    $('bgsTag').textContent='BGS中央 —';
+    $('bgsTag').style.background='#eef0f8'; $('bgsTag').style.color='#6b7186';
+    setConfTag();
+    $('marginNote').innerHTML='計測面: <b>'+sideJa(side)+'面</b> ／ フチなしなので<b>この面は測定対象外</b>';
+    setBarNA('lr','左','右'); setBarNA('tb','上','下');
+    $('verdict').innerHTML='内枠が無いと余白比の基準が無いので測らない。'+sideJa(other)+
+      '面を「枠あり」で測って確定すれば、その値だけで上限を出す。'+
+      '<br><b>絵柄が片側だけ切れているような目に見える裁断ズレはこの計測では拾えない</b>。そこは現物で見ること。';
+    renderBoth(); return;
+  }
+
+  if(!lines) return;
+  var m=margins(), lr=m.lr, tb=m.tb, worst=worstOf(lr,tb);
+  var p=gradeOf(PSA[side],worst), b=gradeOf(BGS[side],worst);
+  cur={ side:side, mode:mode, lr:lr, tb:tb, worst:worst, psa:p, bgs:b,
+        Lmm:m.Lmm,Rmm:m.Rmm,Tmm:m.Tmm,Bmm:m.Bmm, skew:skewPct, ts:Date.now() };
+  var axis=(Math.max(lr,100-lr)>=Math.max(tb,100-tb))?'左右':'上下';
+
+  if(mode==='ref'){
+    /* 基準を人が決めた数字にグレードの色を付けると、根拠のある値に見えてしまう */
+    $('psaBadge').textContent='参考'; $('psaBadge').style.background='#aab0c4';
+    $('bgsTag').textContent='上限には使わない';
+    $('bgsTag').style.background='#eef0f8'; $('bgsTag').style.color='#6b7186';
+  }else{
+    $('psaBadge').textContent='PSA '+(p.g===null?'≤4':p.g);
+    $('psaBadge').style.background=gradeColor(p.g);
+    $('bgsTag').textContent='BGS中央 '+(b.g===null?'≤6.5':b.g);
+    $('bgsTag').style.background='#f1eefe'; $('bgsTag').style.color='#5b3fd6';
+  }
+  setConfTag();
+
+  if(mode==='ref'){
+    $('marginNote').innerHTML='計測面: <b>'+sideJa(side)+'面</b>（フチなし・自分で置いた基準） ／ 悪い方 '+
+      fmt(worst,1)+':'+fmt(100-worst,1)+'<br><span style="color:var(--sub)">効いているのは'+axis+
+      '。基準の置き方で数pt動くので、比べる時は毎回同じ要素に置くこと。</span>';
+  }else{
+    var tenTh=PSA[side][0][1], gap=tenTh-worst, txt;
+    if(gap>=1.5) txt='<span style="color:var(--good)">PSA10ライン（'+tenTh+':'+(100-tenTh)+'）まで余裕 '+fmt(gap,1)+'pt</span>';
+    else if(gap>=0) txt='<span style="color:var(--warn)">PSA10ラインまで '+fmt(gap,1)+'pt しかない＝実質ボーダー。'+axis+'次第</span>';
+    else if(gap>-1.5) txt='<span style="color:var(--warn)">PSA10ラインを '+fmt(-gap,1)+'pt 超過＝ボーダー。'+axis+'の線をもう一度詰めて</span>';
+    else txt='<span style="color:var(--bad)">PSA10ラインを '+fmt(-gap,1)+'pt 超過。効いているのは'+axis+'</span>';
+    $('marginNote').innerHTML='計測面: <b>'+sideJa(side)+'面</b> ／ 悪い方 '+fmt(worst,1)+':'+fmt(100-worst,1)+'<br>'+txt;
+  }
 
   setBar('lr',lr,m.Lmm,m.Rmm,'左','右');
   setBar('tb',tb,m.Tmm,m.Bmm,'上','下');
 
-  var v='センタリングは<b>上限</b>を決めるだけ。角・エッジ・表面・印刷は別評価。';
-  v+= autoDetected ? '<br>内枠は自動検出。<b>ルーペで境界を確認</b>してから信じること。'
-                   : '<br>内枠は手動で合わせた値。';
+  var v;
+  if(mode==='ref'){
+    v='この面はフチなし。<b>数字は参考値</b>で、両面の上限グレードには入れていない。'+
+      '<br>基準にするなら、絵柄ではなくテキスト枠や箔の縁のように<b>印刷位置が決まっている要素</b>を選ぶこと。';
+  }else{
+    v='センタリングは<b>上限</b>を決めるだけ。角・エッジ・表面・印刷は別評価。';
+    v+= autoDetected ? '<br>内枠は自動検出。<b>ルーペで境界を確認</b>してから信じること。'
+                     : '<br>内枠は手動で合わせた値。';
+  }
   if(skewPct>12) v+='<br><b>遠近ひずみが大きい</b>。4隅がわずかにズレるだけで1pt動くので、真上から撮り直す方が速い。';
   $('verdict').innerHTML=v;
 
   renderBoth();
 }
 function setBar(pfx,val,mmA,mmB,na,nb){
-  var th=PSA[side][0][1];
-  $(pfx+'Text').textContent=fmt(val,1)+' : '+fmt(100-val,1);
+  var th=PSA[side][0][1], o=Math.abs(val-50), ref=(modeOf(side)==='ref');
+  $(pfx+'Text').textContent=fmt(val,1)+' : '+fmt(100-val,1)+(ref?'（参考）':'');
   $(pfx+'Fill').style.width=clamp(val,0,100)+'%';
-  var o=Math.abs(val-50);
-  $(pfx+'Fill').style.background = o<=(th-50)?'var(--good)':(o<=(PSA[side][1][1]-50)?'var(--warn)':'var(--bad)');
-  $(pfx+'C1').style.left=(100-th)+'%'; $(pfx+'C2').style.left=th+'%';
-  $(pfx+'Tick1').style.left=(100-th)+'%'; $(pfx+'Tick1').textContent=(100-th)+'';
-  $(pfx+'Tick2').style.left=th+'%'; $(pfx+'Tick2').textContent=th+'';
+  $(pfx+'Fill').style.background = ref ? '#aab0c4'
+    : (o<=(th-50)?'var(--good)':(o<=(PSA[side][1][1]-50)?'var(--warn)':'var(--bad)'));
+  /* 参考モードは判定に使わないので、PSAの閾値マーカーも出さない（判定したように見えるため） */
+  $(pfx+'C1').style.left=(ref?50:100-th)+'%'; $(pfx+'C2').style.left=(ref?50:th)+'%';
+  $(pfx+'Tick1').style.left=(100-th)+'%'; $(pfx+'Tick1').textContent=ref?'':(100-th)+'';
+  $(pfx+'Tick2').style.left=th+'%'; $(pfx+'Tick2').textContent=ref?'':th+'';
   $(pfx+'Mm').textContent=na+' '+fmt(mmA,2)+'mm ／ '+nb+' '+fmt(mmB,2)+'mm';
   var d=mmA-mmB;
   $(pfx+'Dir').textContent = Math.abs(d)<0.02 ? 'ほぼ均等'
     : (d>0? nb+'寄り '+fmt(Math.abs(d),2)+'mm' : na+'寄り '+fmt(Math.abs(d),2)+'mm');
 }
+function setBarNA(pfx,na,nb){
+  $(pfx+'Text').textContent='—';
+  $(pfx+'Fill').style.width='0%';
+  $(pfx+'C1').style.left='50%'; $(pfx+'C2').style.left='50%';
+  $(pfx+'Tick1').textContent=''; $(pfx+'Tick2').textContent='';
+  $(pfx+'Mm').textContent=na+' — ／ '+nb+' —';
+  $(pfx+'Dir').textContent='';
+}
+/* 上限は「枠あり」で測れた面だけの min。フチなしの面は数に入れない
+   （none は値が無い。ref は基準が人任せなので上限の根拠にできない） */
 function renderBoth(){
   var f=res.front, b=res.back;
   if(!f||!b){ $('bothBox').hidden=true; return; }
   $('bothBox').hidden=false;
-  var psa=Math.min(f.psa.g===null?4:f.psa.g, b.psa.g===null?4:b.psa.g);
-  var bgs=Math.min(f.bgs.g===null?6.5:f.bgs.g, b.bgs.g===null?6.5:b.bgs.g);
-  function row(n,r){
-    return '<tr><td>'+n+'</td><td class="n">'+fmt(r.lr,1)+':'+fmt(100-r.lr,1)+'</td>'+
-      '<td class="n">'+fmt(r.tb,1)+':'+fmt(100-r.tb,1)+'</td>'+
-      '<td class="n">'+(r.psa.g===null?'≤4':r.psa.g)+'</td>'+
-      '<td class="n">'+(r.bgs.g===null?'≤6.5':r.bgs.g)+'</td></tr>';
+  var arr=[f,b], i, psaV=[], bgsV=[], anyRef=false;
+  for(i=0;i<2;i++){
+    if(arr[i].mode==='ref') anyRef=true;
+    if((arr[i].mode||'framed')==='framed'){
+      psaV.push(arr[i].psa.g===null?4:arr[i].psa.g);
+      bgsV.push(arr[i].bgs.g===null?6.5:arr[i].bgs.g);
+    }
   }
-  $('bothTable').innerHTML=
-    '<tr><th>面</th><th>左右</th><th>上下</th><th>PSA</th><th>BGS中央</th></tr>'+
+  function mn(a){ if(!a.length) return null; var v=a[0],j; for(j=1;j<a.length;j++) if(a[j]<v) v=a[j]; return v; }
+  var psa=mn(psaV), bgs=mn(bgsV), dash='<td class="n" style="color:var(--sub);font-weight:600">—</td>';
+  function ratio(r,k){
+    if(r.mode==='none') return dash;
+    return '<td class="n"'+(r.mode==='ref'?' style="color:var(--sub)"':'')+'>'+
+      fmt(r[k],1)+':'+fmt(100-r[k],1)+(r.mode==='ref'?'*':'')+'</td>';
+  }
+  function cell(r,k,na){
+    if((r.mode||'framed')!=='framed') return dash;
+    return '<td class="n">'+(r[k].g===null?na:r[k].g)+'</td>';
+  }
+  function row(n,r){
+    return '<tr><td>'+n+(r.mode==='none'?' <span style="font-weight:600;color:var(--sub);font-size:11px">フチなし</span>':'')+'</td>'+
+      ratio(r,'lr')+ratio(r,'tb')+cell(r,'psa','≤4')+cell(r,'bgs','≤6.5')+'</tr>';
+  }
+  var note = psa===null ? '両面ともフチなし＝センタリングでは判定できない'
+           : (psaV.length===1 ? '片面がフチなし。測れた面だけで出した上限' : 'センタリングのみ');
+  var html='<tr><th>面</th><th>左右</th><th>上下</th><th>PSA</th><th>BGS中央</th></tr>'+
     row('表',f)+row('裏',b)+
-    '<tr><td><b>上限</b></td><td colspan="2" style="color:var(--sub);font-size:11px">センタリングのみ</td>'+
-    '<td class="n">'+psa+'</td><td class="n">'+bgs+'</td></tr>';
+    '<tr><td><b>上限</b></td><td colspan="2" style="color:var(--sub);font-size:11px">'+note+'</td>'+
+    '<td class="n">'+(psa===null?'—':psa)+'</td><td class="n">'+(bgs===null?'—':bgs)+'</td></tr>';
+  $('bothTable').innerHTML=html;
+  $('bothNote').hidden=!anyRef;
 }
 function switchSide(s){
   side=s;
   $('sideFront').className=s==='front'?'on':'';
   $('sideBack').className=s==='back'?'on':'';
   $('commitBtn').textContent='この'+sideJa(s)+'面を確定 → '+sideJa(s==='front'?'back':'front')+'面を測る';
+  syncModeUI();
   if(lines) drawMeasure();   /* 帯の色も面に合わせて塗り直す */
   updateResult();
 }
@@ -841,14 +978,23 @@ function resultText(){
   var name=$('ptype').value.trim(), d=new Date(r.ts);
   var s='【センタリング計測】'+d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+'\n';
   if(name) s+='カード: '+name+'\n';
-  s+='面: '+sideJa(r.side)+'\n';
+  var tail='遠近補正あり（台形 '+fmt(r.skew,0)+'%）／センタリングのみ・最終判断は現物';
+  s+='面: '+sideJa(r.side)+(r.mode==='none'?'（フチなし・測定対象外）':(r.mode==='ref'?'（フチなし・参考基準）':''))+'\n';
+  if(r.mode==='none'){
+    s+='内枠が無いのでこの面は測っていない。上限は反対の面のセンタリングで見る。\n'+tail;
+    return s;
+  }
   s+='左右 '+fmt(r.lr,1)+' : '+fmt(100-r.lr,1)+'（左 '+fmt(r.Lmm,2)+'mm / 右 '+fmt(r.Rmm,2)+'mm）\n';
   s+='上下 '+fmt(r.tb,1)+' : '+fmt(100-r.tb,1)+'（上 '+fmt(r.Tmm,2)+'mm / 下 '+fmt(r.Bmm,2)+'mm）\n';
   s+='悪い方 '+fmt(r.worst,1)+':'+fmt(100-r.worst,1)+'\n';
-  s+='PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'（'+r.psa.th+':'+(100-r.psa.th)+'ラインまで '+
-     (r.psa.margin>=0?'余裕 '+fmt(r.psa.margin,1):'超過 '+fmt(-r.psa.margin,1))+'pt）\n';
-  s+='BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g)+'\n';
-  s+='遠近補正あり（台形 '+fmt(r.skew,0)+'%）／センタリングのみ・最終判断は現物';
+  if(r.mode==='ref'){
+    s+='※ 基準線は絵柄から手動で決めた参考値。グレード上限には使わない\n';
+  }else{
+    s+='PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'（'+r.psa.th+':'+(100-r.psa.th)+'ラインまで '+
+       (r.psa.margin>=0?'余裕 '+fmt(r.psa.margin,1):'超過 '+fmt(-r.psa.margin,1))+'pt）\n';
+    s+='BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g)+'\n';
+  }
+  s+=tail;
   return s;
 }
 function copyText(t){
@@ -873,11 +1019,23 @@ $('imgBtn').addEventListener('click',function(){
   c.drawImage(rectCv,pad,pad);
   c.fillStyle='#161a2b'; c.font='800 34px sans-serif'; c.textAlign='left'; c.textBaseline='top';
   var name=$('ptype').value.trim();
-  c.fillText((name||'センタリング計測')+'  ['+sideJa(r.side)+'面]', pad, RH+pad+12);
+  var tag=r.mode==='none'?'（フチなし）':(r.mode==='ref'?'（フチなし・参考）':'');
+  c.fillText((name||'センタリング計測')+'  ['+sideJa(r.side)+'面]'+tag, pad, RH+pad+12);
   c.font='700 30px sans-serif'; c.fillStyle='#6b7186';
-  c.fillText('左右 '+fmt(r.lr,1)+':'+fmt(100-r.lr,1)+'　上下 '+fmt(r.tb,1)+':'+fmt(100-r.tb,1), pad, RH+pad+56);
-  c.font='800 30px sans-serif'; c.fillStyle='#6d5cff';
-  c.fillText('PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'　BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g), pad, RH+pad+94);
+  if(r.mode==='none'){
+    c.fillText('内枠が無いためこの面は測定対象外', pad, RH+pad+56);
+    c.fillText('上限は反対の面のセンタリングで見る', pad, RH+pad+94);
+  }else{
+    c.fillText('左右 '+fmt(r.lr,1)+':'+fmt(100-r.lr,1)+'　上下 '+fmt(r.tb,1)+':'+fmt(100-r.tb,1), pad, RH+pad+56);
+    c.font='800 30px sans-serif';
+    if(r.mode==='ref'){
+      c.fillStyle='#6b7186';
+      c.fillText('参考値（基準線は手動）／上限には使わない', pad, RH+pad+94);
+    }else{
+      c.fillStyle='#6d5cff';
+      c.fillText('PSA上限 '+(r.psa.g===null?'≤4':r.psa.g)+'　BGS中央 '+(r.bgs.g===null?'≤6.5':r.bgs.g), pad, RH+pad+94);
+    }
+  }
   out.toBlob(function(bl){
     var u=URL.createObjectURL(bl), a=document.createElement('a');
     a.href=u; a.download='centering_'+r.side+'_'+Date.now()+'.png';   /* 端末差を避けASCIIのみ */
@@ -900,19 +1058,28 @@ $('saveBtn').addEventListener('click',function(){
   var r=cur; if(!r){ toast('計測がまだ'); return; }
   res[side]=r; renderBoth();          /* 記録＝確定 */
   var a=histLoad();
-  a.unshift({ ts:r.ts, name:$('ptype').value.trim(), side:r.side,
-    lr:r.lr, tb:r.tb, worst:r.worst,
-    psa:(r.psa.g===null?'≤4':String(r.psa.g)), bgs:(r.bgs.g===null?'≤6.5':String(r.bgs.g)),
-    Lmm:r.Lmm,Rmm:r.Rmm,Tmm:r.Tmm,Bmm:r.Bmm, skew:r.skew, th:thumb() });
+  var e={ ts:r.ts, name:$('ptype').value.trim(), side:r.side, mode:r.mode||'framed',
+          skew:r.skew, th:thumb() };
+  if(r.mode!=='none'){
+    e.lr=r.lr; e.tb=r.tb; e.worst=r.worst;
+    e.Lmm=r.Lmm; e.Rmm=r.Rmm; e.Tmm=r.Tmm; e.Bmm=r.Bmm;
+    e.psa=(r.psa.g===null?'≤4':String(r.psa.g));
+    e.bgs=(r.bgs.g===null?'≤6.5':String(r.bgs.g));
+  }
+  a.unshift(e);
   while(a.length>40) a.pop();
   histSave(a); renderHist(); toast('記録した');
 });
+/* 旧い記録には mode が無い。無ければ framed とみなす */
+function histBody(h){
+  if(h.mode==='none') return 'フチなし（測定対象外）';
+  var t='左右'+fmt(h.lr,1)+':'+fmt(100-h.lr,1)+' 上下'+fmt(h.tb,1)+':'+fmt(100-h.tb,1);
+  return h.mode==='ref' ? t+'（参考／上限には使わない）' : t+' PSA'+h.psa+' BGS'+h.bgs;
+}
 function histText(h){
   var d=new Date(h.ts);
   return ('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+' '+
-    (h.name||'(名前なし)')+' ['+(h.side==='front'?'表':'裏')+'] '+
-    '左右'+fmt(h.lr,1)+':'+fmt(100-h.lr,1)+' 上下'+fmt(h.tb,1)+':'+fmt(100-h.tb,1)+
-    ' PSA'+h.psa+' BGS'+h.bgs;
+    (h.name||'(名前なし)')+' ['+(h.side==='front'?'表':'裏')+'] '+histBody(h);
 }
 function renderHist(){
   var a=histLoad(), out=$('histOut');
@@ -925,8 +1092,7 @@ function renderHist(){
     html+='<div class="hitem">'+
       (h.th?'<img src="'+h.th+'" alt="">':'<img alt="">')+
       '<div class="m"><b>'+(h.name||'(名前なし)')+' <span style="font-weight:600;color:var(--sub)">'+(h.side==='front'?'表':'裏')+'</span></b>'+
-      '<span>左右 '+fmt(h.lr,1)+':'+fmt(100-h.lr,1)+' ／ 上下 '+fmt(h.tb,1)+':'+fmt(100-h.tb,1)+
-      ' ／ PSA'+h.psa+' BGS'+h.bgs+'<br>'+
+      '<span>'+histBody(h)+'<br>'+
       d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+'</span></div>'+
       '<button class="del" data-ts="'+h.ts+'" aria-label="削除">✕</button></div>';
   }
