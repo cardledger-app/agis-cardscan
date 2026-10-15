@@ -245,6 +245,10 @@
     <label for="ptype">カード名 or 型式（撮影すると型式を自動読取）</label>
     <input type="text" id="ptype" placeholder="例: メガリザードン ／ 201/165">
     <div id="priceOut" class="empty">カード名を入れると候補が出る</div>
+    <div class="src" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span id="pricesInfo">データ読込中…</span>
+      <span class="back" id="pricesReload" style="margin:0;white-space:nowrap">↻ 最新に更新</span>
+    </div>
   </div>
 
   <!-- ============ 数値入力 ============ -->
@@ -320,8 +324,29 @@ var res={front:null,back:null}; /* 確定済み。面トグルでは書き換え
 var lastLine=null, drag=null, autoDetected=false, skewPct=0;
 var PRICES={};
 
-fetch('prices.json?'+Date.now()).then(function(r){return r.json();})
-  .then(function(d){ PRICES=d.cards||{}; }).catch(function(){});
+var PRICES_AT='', pricesBusy=false, pricesChecked=0;
+/* 相場データは台帳の更新に合わせて差し替わる。起動時＋アプリに戻った時＋手動で取り直す */
+function loadPrices(manual){
+  if(pricesBusy) return; pricesBusy=true; pricesChecked=Date.now();
+  fetch('prices.json?'+Date.now(),{cache:'no-store'}).then(function(r){return r.json();})
+    .then(function(d){
+      var changed=d.updated!==PRICES_AT;
+      PRICES=d.cards||{}; PRICES_AT=d.updated||'';
+      showPricesInfo(Object.keys(PRICES).length);
+      if(changed && typeof search==='function' && $('ptype').value.trim()) search();
+      if(manual) toast(changed?'相場データを更新した':'最新のまま');
+    }).catch(function(){ showPricesInfo(-1); if(manual) toast('取得できなかった（圏外？）'); })
+    .then(function(){ pricesBusy=false; });
+}
+function showPricesInfo(n){
+  var el=$('pricesInfo'); if(!el) return;
+  var at=PRICES_AT?PRICES_AT.replace('T',' ').slice(0,16):'—';
+  el.textContent=(n<0?'オフライン（前回のデータ） ':'')+'データ '+at+' 時点・'+Object.keys(PRICES).length+'件';
+}
+loadPrices(false);
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible' && Date.now()-pricesChecked>30000) loadPrices(false);
+});
 
 /* ========== 小物 ========== */
 function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('on');
@@ -971,6 +996,7 @@ function slug(t){ return String(t).trim().toLowerCase().replace(/[\s/]+/g,'-').r
 function yen(v){ return (typeof v==='number')?'¥'+v.toLocaleString():'—'; }
 function norm(s){ return String(s).toLowerCase().replace(/[\s・=&＆]/g,''); }
 function codeOf(k){
+  if(k.indexOf('noid-')===0) return '型式未登録';
   var p=k.split('-');
   if(p.length>=2 && /^\d+$/.test(p[p.length-1]) && /^[0-9a-z]+$/.test(p[p.length-2]))
     return (p.slice(0,-2).join(' ')+' '+p[p.length-2]+'/'+p[p.length-1]).toUpperCase().trim();
@@ -1011,6 +1037,7 @@ function showDetail(k,back){
   var b=$('backBtn'); if(b) b.addEventListener('click',search);
 }
 ptype.addEventListener('input',search);
+$('pricesReload').addEventListener('click',function(){ loadPrices(true); });
 
 /* ========== 型式OCR（Tesseract.jsは使う時だけ遅延ロード） ==========
    補正後の rectClean から読む。カードが必ず同じ向き・同じ大きさに正規化されるので、

@@ -1,7 +1,7 @@
 /* AgiS カードスキャン — オフライン用 Service Worker
    方針: network-first（オンラインなら常に最新、圏外ならキャッシュ）。
    店頭で電波が弱くても開ける／更新してもキャッシュに閉じ込められない、の両立。 */
-var CACHE = 'agis-cardscan-v2';
+var CACHE = 'agis-cardscan-v3';
 var SHELL = [
   './index.html',
   './prices.json',
@@ -38,11 +38,12 @@ self.addEventListener('fetch', function (e) {
     fetch(req).then(function (res) {
       if (res && res.ok) {
         var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        caches.open(CACHE).then(function (c) { c.put(req.url.split('?')[0], copy); });
       }
       return res;
     }).catch(function () {
-      return caches.match(req).then(function (hit) {
+      /* prices.json?<時刻> のようなクエリ付きでもキャッシュに当てる */
+      return caches.match(req, { ignoreSearch: true }).then(function (hit) {
         return hit || caches.match('./index.html');
       });
     })
